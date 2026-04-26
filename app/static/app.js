@@ -89,15 +89,37 @@
     });
   }
 
-  // ===== Submit handler: disable button to avoid double-submit =====
+  // ===== Source tabs (upload / URL / existing) =====
+  const tabs = document.querySelectorAll(".source-tab");
+  const panes = document.querySelectorAll(".source-pane");
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      tabs.forEach((t) => t.classList.remove("is-active"));
+      tab.classList.add("is-active");
+      const target = tab.dataset.tab;
+      panes.forEach((p) => {
+        p.hidden = p.dataset.pane !== target;
+      });
+    });
+  });
+
+  // ===== Submit handler: validate source + disable button =====
   const runForm = $("#runForm");
   if (runForm) {
-    runForm.addEventListener("submit", () => {
+    runForm.addEventListener("submit", (e) => {
+      // Validar que hay fuente
+      const url = (document.getElementById("urlInput") || {}).value || "";
+      const video = (document.getElementById("video") || {}).value || "";
+      if (!url.trim() && !video) {
+        e.preventDefault();
+        alert("Selecciona un video subido, una URL de YouTube, o uno existente.");
+        return;
+      }
       const btn = runForm.querySelector('button[type="submit"]');
       if (btn) {
         btn.disabled = true;
         btn.innerHTML = `
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="spin">
             <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
           </svg>
           Lanzando…`;

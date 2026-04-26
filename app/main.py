@@ -11,9 +11,9 @@ todas las rutas requieren HTTP Basic Auth. Sin definirlas: modo local sin auth.
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 ROOT = Path(__file__).resolve().parent.parent
 INPUT_DIR = ROOT / "input"
@@ -52,57 +53,63 @@ app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
 app.mount("/branding", StaticFiles(directory=str(BRANDING_DIR)), name="branding")
 
 
-# ===== HTTP Basic Auth (opcional, via env vars EDITOR_USER + EDITOR_PASS) =====
+# ===== Auth (sesion cookie-based, single admin) =====
 
-class BasicAuthMiddleware(BaseHTTPMiddleware):
-    """Protege TODAS las rutas (incluyendo mounts de StaticFiles) con HTTP Basic.
-    Solo activo si EDITOR_USER y EDITOR_PASS estan definidas. Excluye paths
-    publicos como /api/health para health-checks externos."""
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "info@ilernetwork.com").strip()
+ADMIN_PASS = os.environ.get("ADMIN_PASS", "").strip()
+AUTH_ENABLED = bool(ADMIN_PASS)
+SESSION_SECRET = os.environ.get("EDITOR_SECRET") or secrets.token_hex(32)
 
-    def __init__(self, app, user: str, pwd: str, exempt: set[str] | None = None):
-        super().__init__(app)
-        self.user = user
-        self.pwd = pwd
-        self.exempt = exempt or set()
+
+def is_authed(request: Request) -> bool:
+    if not AUTH_ENABLED:
+        return True
+    try:
+        return request.session.get("user") == ADMIN_EMAIL
+    except Exception:
+        return False
+
+
+class CookieAuthMiddleware(BaseHTTPMiddleware):
+    """Protege rutas. Login form en /login. Static y health publicos."""
 
     async def dispatch(self, request, call_next):
-        if request.url.path in self.exempt:
+        if not AUTH_ENABLED:
             return await call_next(request)
-        auth = request.headers.get("authorization", "")
-        if not auth.lower().startswith("basic "):
-            return self._unauthorized()
-        try:
-            decoded = base64.b64decode(auth.split(" ", 1)[1]).decode("utf-8")
-            user, _, pwd = decoded.partition(":")
-        except Exception:
-            return self._unauthorized()
-        ok_user = secrets.compare_digest(user, self.user)
-        ok_pwd = secrets.compare_digest(pwd, self.pwd)
-        if not (ok_user and ok_pwd):
-            return self._unauthorized()
-        return await call_next(request)
-
-    @staticmethod
-    def _unauthorized() -> Response:
-        return Response(
-            "Authentication required",
-            status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="Editor"'},
-        )
+        path = request.url.path
+        if (path in {"/login", "/api/health"}
+                or path.startswith("/static/")):
+            return await call_next(request)
+        if is_authed(request):
+            return await call_next(request)
+        if path.startswith("/api/"):
+            return JSONResponse({"error": "auth required"}, status_code=401)
+        return RedirectResponse(f"/login?next={path}", status_code=303)
 
 
-_AUTH_USER = os.environ.get("EDITOR_USER", "").strip()
-_AUTH_PASS = os.environ.get("EDITOR_PASS", "").strip()
-if _AUTH_USER and _AUTH_PASS:
-    app.add_middleware(
-        BasicAuthMiddleware,
-        user=_AUTH_USER,
-        pwd=_AUTH_PASS,
-        exempt={"/api/health"},
-    )
-    print(f"[auth] Basic Auth activa (user='{_AUTH_USER}')")
+# Orden de add_middleware: LIFO. SessionMiddleware debe envolver a CookieAuth
+# para que request.session este disponible. Por eso primero anadimos
+# CookieAuth (sera el "inner") y despues SessionMiddleware (sera el "outer").
+app.add_middleware(CookieAuthMiddleware)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    max_age=14 * 24 * 3600,  # 14 dias
+    same_site="lax",
+)
+
+if AUTH_ENABLED:
+    print(f"[auth] Login cookie-based activo (admin={ADMIN_EMAIL})")
 else:
-    print("[auth] Sin auth (define EDITOR_USER y EDITOR_PASS para protegerlo)")
+    print(f"[auth] Sin auth (define ADMIN_PASS para protegerlo)")
+
+
+def yt_video_id(url: str) -> str | None:
+    """Extrae el ID de una URL de YouTube. None si no es URL valida."""
+    m = re.search(
+        r"(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{6,15})", url
+    )
+    return m.group(1) if m else None
 
 
 # ===== Helpers =====
@@ -257,7 +264,8 @@ def run_pipeline_worker(job_id: str) -> None:
     job["started"] = datetime.now().isoformat()
     save_job(job_id, job)
 
-    cmd = [sys.executable, str(SCRIPTS_DIR / "auto_reels_pro.py")] + list(job["args"])
+    script = "auto_yt.py" if job.get("use_yt") else "auto_reels_pro.py"
+    cmd = [sys.executable, str(SCRIPTS_DIR / script)] + list(job["args"])
     log_path = JOBS_DIR / f"{job_id}.log"
 
     popen_kwargs: dict = dict(
@@ -300,6 +308,47 @@ def run_pipeline_worker(job_id: str) -> None:
 
 # ===== Routes =====
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_get(request: Request, next: str = "/"):
+    if is_authed(request):
+        return RedirectResponse(next or "/", status_code=303)
+    return templates.TemplateResponse(request, "login.html", {
+        "email": ADMIN_EMAIL,
+        "error": None,
+        "next": next,
+    })
+
+
+@app.post("/login")
+async def login_post(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/"),
+):
+    if not AUTH_ENABLED:
+        return RedirectResponse("/", status_code=303)
+    ok_email = secrets.compare_digest(email.strip().lower(), ADMIN_EMAIL.lower())
+    ok_pass = secrets.compare_digest(password, ADMIN_PASS)
+    if ok_email and ok_pass:
+        request.session["user"] = ADMIN_EMAIL
+        return RedirectResponse(next or "/", status_code=303)
+    return templates.TemplateResponse(request, "login.html", {
+        "email": email,
+        "error": "Credenciales incorrectas",
+        "next": next,
+    }, status_code=401)
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    try:
+        request.session.clear()
+    except Exception:
+        pass
+    return RedirectResponse("/login", status_code=303)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse(request, "home.html", {
@@ -308,6 +357,7 @@ async def home(request: Request):
         "music_files": _list_dir(MUSIC_DIR, MUSIC_EXTS),
         "watermarks": _list_dir(BRANDING_DIR, IMG_EXTS),
         "recent_jobs": list_jobs(limit=8),
+        "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
     })
 
 
@@ -358,7 +408,8 @@ async def upload_asset(file: UploadFile = File(...), kind: str = Form(...)):
 
 @app.post("/run")
 async def run_job(
-    video: str = Form(...),
+    video: str = Form(""),
+    url: str = Form(""),
     n_clips: int = Form(6),
     profile: str = Form(""),
     style: str = Form("clean"),
@@ -378,11 +429,25 @@ async def run_job(
     no_hook: str = Form(""),
     translate_en: str = Form(""),
 ):
-    video_path = INPUT_DIR / video
-    if not video_path.exists():
-        raise HTTPException(404, f"Video no existe: {video}")
+    url = url.strip()
+    if not video and not url:
+        raise HTTPException(400, "Tienes que especificar un video O una URL")
 
-    args: list[str] = [str(video_path), str(int(n_clips))]
+    use_yt = bool(url)
+    if use_yt:
+        vid = yt_video_id(url)
+        if not vid:
+            raise HTTPException(400, "URL de YouTube no reconocida")
+        video_stem = f"yt_{vid}"
+        out_dir_name = f"{video_stem}_pro"
+        # auto_yt acepta: URL n_clips [resto de flags pasa a auto_reels_pro]
+        args: list[str] = [url, str(int(n_clips))]
+    else:
+        video_path = INPUT_DIR / video
+        if not video_path.exists():
+            raise HTTPException(404, f"Video no existe: {video}")
+        out_dir_name = f"{video_path.stem}_pro"
+        args = [str(video_path), str(int(n_clips))]
     if profile:
         args += ["--profile", profile]
     else:
@@ -418,10 +483,11 @@ async def run_job(
         args += ["--translate-en"]
 
     job_id = uuid.uuid4().hex[:12]
-    out_dir_name = f"{video_path.stem}_pro"
     job_data = {
         "id": job_id,
-        "video": video,
+        "video": video if not use_yt else f"(URL) {url[:60]}",
+        "url": url if use_yt else None,
+        "use_yt": use_yt,
         "n_clips": int(n_clips),
         "profile": profile or None,
         "args": args,

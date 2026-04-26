@@ -7,12 +7,27 @@
   <p class="hero-sub">Tu video largo entra. <strong>N reels verticales 1080x1920</strong> salen — con highlights, subtitulos animados, hook, color, musica con ducking, watermark y outro brandeado.</p>
 </section>
 
-<section class="card upload-card">
+<section class="card source-card">
   <h2 class="card-title">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-    Subir video nuevo
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+    Fuente del video
   </h2>
-  <div class="upload-row">
+  <div class="source-tabs" role="tablist">
+    <button type="button" class="source-tab is-active" data-tab="upload" role="tab">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+      Subir archivo
+    </button>
+    <button type="button" class="source-tab" data-tab="url" role="tab">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+      Pegar URL YouTube
+    </button>
+    <button type="button" class="source-tab" data-tab="existing" role="tab">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+      Usar existente
+    </button>
+  </div>
+
+  <div class="source-pane" data-pane="upload">
     <label class="dropzone" id="dropzone">
       <input type="file" id="videoFile" accept="video/*" hidden>
       <div class="dropzone-icon">
@@ -20,10 +35,33 @@
       </div>
       <div class="dropzone-text">
         <strong>Suelta un video aqui</strong> o haz click para seleccionar.<br>
-        <small>mp4, mov, mkv, avi, webm</small>
+        <small>mp4, mov, mkv, avi, webm — el video sube y se anade a "Usar existente"</small>
       </div>
     </label>
     <div class="upload-status" id="uploadStatus" hidden></div>
+  </div>
+
+  <div class="source-pane" data-pane="url" hidden>
+    <div class="field">
+      <label for="urlInput">URL de YouTube (video, short, embed)</label>
+      <input type="url" id="urlInput" form="runForm" name="url"
+             placeholder="https://www.youtube.com/watch?v=ID..."
+             pattern="https?://.+">
+      <small>El video se descarga via yt-dlp justo antes de procesarlo. Cache automatico
+        (no re-descarga si lo lanzas otra vez).</small>
+    </div>
+  </div>
+
+  <div class="source-pane" data-pane="existing" hidden>
+    <div class="field">
+      <label for="video">Video en input/</label>
+      <select form="runForm" name="video" id="video">
+        <option value="">— elige uno —</option>
+        {% for v in videos %}
+          <option value="{{ v.name }}">{{ v.name }} · {{ v.size_mb }} MB</option>
+        {% endfor %}
+      </select>
+    </div>
   </div>
 </section>
 
@@ -35,19 +73,6 @@
     </h2>
 
     <div class="grid">
-      <div class="field">
-        <label for="video">Video fuente</label>
-        <select name="video" id="video" required>
-          {% if videos %}
-            {% for v in videos %}
-              <option value="{{ v.name }}">{{ v.name }} · {{ v.size_mb }} MB</option>
-            {% endfor %}
-          {% else %}
-            <option value="" disabled selected>(sube uno arriba)</option>
-          {% endif %}
-        </select>
-      </div>
-
       <div class="field">
         <label for="n_clips">Numero de reels</label>
         <input type="number" name="n_clips" id="n_clips" value="6" min="1" max="20" required>
