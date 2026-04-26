@@ -482,6 +482,34 @@ WATERMARK_POSITIONS = {
 }
 
 
+def srt_time(s: float) -> str:
+    """Convierte segundos a formato SRT: HH:MM:SS,mmm"""
+    h = int(s // 3600)
+    m = int((s % 3600) // 60)
+    sec = int(s % 60)
+    ms = int((s - int(s)) * 1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+
+def write_srt_for_range(segs: list, t0: float, t1: float, srt_path: Path) -> None:
+    """Filtra segmentos al rango [t0,t1] y escribe un .srt con tiempos relativos."""
+    lines: list[str] = []
+    idx = 1
+    for s, e, t in segs:
+        if e <= t0 or s >= t1:
+            continue
+        rel_s = max(0.0, s - t0)
+        rel_e = min(t1 - t0, e - t0)
+        if rel_e <= rel_s:
+            continue
+        lines.append(str(idx))
+        lines.append(f"{srt_time(rel_s)} --> {srt_time(rel_e)}")
+        lines.append(t.strip())
+        lines.append("")
+        idx += 1
+    srt_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          words_chunk: int, style: str = DEFAULT_STYLE,
          skip_start: float = 0.0, skip_end: float = 0.0,
@@ -491,7 +519,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          ducking: bool = False,
          watermark: str | None = None,
          watermark_pos: str = "br",
-         watermark_scale: float = 12.0) -> None:
+         watermark_scale: float = 12.0,
+         translate_en: bool = False) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -559,6 +588,13 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
     if not all_segs:
         print("[ERROR] No se detecto voz")
         sys.exit(1)
+
+    en_segs: list = []
+    if translate_en and info.language != "en":
+        print(f"[..] Generando transcripcion EN (Whisper task=translate)")
+        en_obj, _ = model.transcribe(str(video), beam_size=5, task="translate")
+        en_segs = [(s.start, s.end, s.text) for s in en_obj]
+        print(f"[..] {len(en_segs)} segmentos EN traducidos")
 
     # Filtra segmentos al rango utilizable (skip intro/outro)
     selection_segs = [(s, e, t) for s, e, t in all_segs
@@ -743,7 +779,12 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                 f"{tags_line}\n",
                 encoding="utf-8",
             )
-            print(f"     + thumbnail .jpg + transcripcion .txt + {len(tags)} hashtags")
+            extras_msg = f"thumbnail .jpg + .txt + {len(tags)} hashtags"
+            if en_segs:
+                en_srt_path = out_dir / f"reel_{clip_id:02d}_en.srt"
+                write_srt_for_range(en_segs, t0, t1, en_srt_path)
+                extras_msg += " + .srt EN"
+            print(f"     + {extras_msg}")
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -818,13 +859,14 @@ def parse_args(argv: list):
     watermark = extract_first("--watermark")
     watermark_pos = extract_first("--watermark-pos") or "br"
     watermark_scale = float(extract_first("--watermark-scale") or 12.0)
+    translate_en = bool(extract_first("--translate-en", has_value=False))
 
     if len(args) < 2:
         return None
     return (args[0], int(args[1]), mode, target, chunk, style,
             skip_start, skip_end, music, with_hook, music_volume,
             grade, outro_text, outro_duration, ducking,
-            watermark, watermark_pos, watermark_scale)
+            watermark, watermark_pos, watermark_scale, translate_en)
 
 
 if __name__ == "__main__":
@@ -833,9 +875,9 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od, dk, wm, wp, ws) = parsed
+     gr, ot, od, dk, wm, wp, ws, te) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
          grade=gr, outro_text=ot, outro_duration=od,
          ducking=dk, watermark=wm, watermark_pos=wp,
-         watermark_scale=ws)
+         watermark_scale=ws, translate_en=te)

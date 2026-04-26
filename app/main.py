@@ -174,6 +174,7 @@ def find_reels(out_dir_name: str) -> list[dict]:
         stem = mp4.stem
         thumb = out_dir / f"{stem}.jpg"
         txt = out_dir / f"{stem}.txt"
+        en_srt = out_dir / f"{stem}_en.srt"
         info: dict = {"name": mp4.name, "stem": stem,
                       "video": f"/output/{out_dir_name}/{mp4.name}"}
         if thumb.exists():
@@ -183,9 +184,18 @@ def find_reels(out_dir_name: str) -> list[dict]:
                 info["txt"] = txt.read_text(encoding="utf-8")
             except Exception:
                 info["txt"] = ""
+        if en_srt.exists():
+            info["en_srt"] = f"/output/{out_dir_name}/{en_srt.name}"
         info["size_mb"] = round(mp4.stat().st_size / (1024 * 1024), 1)
         reels.append(info)
     return reels
+
+
+def find_montage(out_dir_name: str) -> str | None:
+    p = OUTPUT_DIR / f"{out_dir_name}_montage.mp4"
+    if p.exists():
+        return f"/output/{out_dir_name}_montage.mp4"
+    return None
 
 
 # ===== Pipeline runner =====
@@ -305,6 +315,7 @@ async def run_job(
     skip_start: float = Form(0),
     skip_end: float = Form(0),
     no_hook: str = Form(""),
+    translate_en: str = Form(""),
 ):
     video_path = INPUT_DIR / video
     if not video_path.exists():
@@ -342,6 +353,8 @@ async def run_job(
         args += ["--skip-end", str(skip_end)]
     if no_hook == "on":
         args += ["--no-hook"]
+    if translate_en == "on":
+        args += ["--translate-en"]
 
     job_id = uuid.uuid4().hex[:12]
     out_dir_name = f"{video_path.stem}_pro"
@@ -369,10 +382,39 @@ async def job_detail(request: Request, job_id: str):
     if not job:
         raise HTTPException(404, "Job no existe")
     reels = find_reels(job["out_dir"]) if job.get("out_dir") else []
+    montage_url = find_montage(job["out_dir"]) if job.get("out_dir") else None
     return templates.TemplateResponse(request, "job.html", {
         "job": job,
         "reels": reels,
+        "montage_url": montage_url,
     })
+
+
+@app.post("/job/{job_id}/montage")
+async def make_montage(
+    job_id: str,
+    per_clip: float = Form(6.0),
+    xfade: float = Form(0.4),
+):
+    job = load_job(job_id)
+    if not job or not job.get("out_dir"):
+        raise HTTPException(404, "Job no existe")
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    if not out_dir.exists():
+        raise HTTPException(400, "No hay reels generados aun")
+    cmd = [
+        sys.executable, str(SCRIPTS_DIR / "auto_montage.py"),
+        str(out_dir),
+        "--per-clip", str(per_clip),
+        "--xfade", str(xfade),
+    ]
+    res = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
+    if res.returncode != 0:
+        raise HTTPException(
+            500,
+            f"auto_montage fallo: {res.stderr[-500:] or res.stdout[-500:]}",
+        )
+    return RedirectResponse(f"/job/{job_id}", status_code=303)
 
 
 @app.get("/api/job/{job_id}")
