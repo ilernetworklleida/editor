@@ -1,0 +1,6 @@
+[
+    "--style", "money",
+    "--grade", "cold",
+    "--chunk", "3",
+    "--duration", "30"
+]

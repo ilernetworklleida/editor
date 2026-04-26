@@ -1,0 +1,6 @@
+[
+    "--style", "clean",
+    "--grade", "warm",
+    "--chunk", "3",
+    "--duration", "40"
+]

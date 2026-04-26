@@ -52,6 +52,7 @@ Editor/
 │   ├── auto_yt.py             [URL -> REELS] baja de YouTube + procesa pro
 │   └── auto_batch.py          [BATCH] procesa una carpeta entera de videos
 ├── music/                 <- mete aqui .mp3 para musica de fondo opcional
+├── profiles/              <- combos de flags reutilizables (viral, educativo, ...)
 ├── requirements.txt
 └── README.md
 ```
@@ -169,6 +170,27 @@ python scripts/auto_reels_pro.py input/v.mp4 6 --outro "TU MARCA" --outro-durati
 Anade un overlay centrado en pantalla durante los ultimos N segundos del reel.
 `\n` se convierte en salto de linea. Estilo grande, blanco con outline negro,
 fade in/out, ligero pop-in de escala.
+
+**True ducking de musica (`--duck`):**
+Sidechain compressor: la musica baja automaticamente cuando hay voz, sube
+cuando hay silencio. Mucho mas pro que el mix simple.
+```bash
+python scripts/auto_reels_pro.py input/v.mp4 6 --music music/cancion.mp3 --duck
+python scripts/auto_reels_pro.py input/v.mp4 6 --music music/cancion.mp3 --duck --music-vol 0.30
+```
+Con `--duck` puedes subir el `--music-vol` mas alto (0.25-0.35) porque el
+compressor lo bajara cuando suene la voz.
+
+**Perfiles (`--profile`):**
+Combos de flags guardados como JSON en `profiles/`. Te ahorran teclear 10 flags
+cada vez. Vienen 3 perfiles de ejemplo: `viral`, `educativo`, `finanzas`.
+```bash
+python scripts/auto_reels_pro.py input/v.mp4 6 --profile viral
+python scripts/auto_reels_pro.py input/v.mp4 6 --profile educativo --music music/c.mp3
+python scripts/auto_reels_pro.py input/v.mp4 6 --profile viral --grade warm   # override
+```
+Tus flags por linea de comandos **anulan** los del perfil. Para crear el tuyo:
+copia uno y guardalo como `profiles/mi_canal.json`.
 Salida por cada reel:
 - `reel_NN.mp4` — el video listo para subir
 - `reel_NN.jpg` — miniatura (frame del medio) por si quieres portada custom

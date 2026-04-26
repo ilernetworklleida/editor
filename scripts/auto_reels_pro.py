@@ -441,10 +441,27 @@ def build_audio_filter(clip_len: float) -> str:
     )
 
 
-def build_audio_with_music_complex(clip_len: float, music_volume: float = 0.18) -> str:
-    """Filter complex que mezcla voz (input 0) con musica (input 1) a bajo volumen.
-    Aplica fades a ambos. Devuelve un filter_complex que sale en [aout]."""
+def build_audio_with_music_complex(clip_len: float, music_volume: float = 0.18,
+                                   ducking: bool = False) -> str:
+    """Filter complex que mezcla voz (input 0) con musica (input 1).
+    - Si ducking=False: mezcla simple, musica a volumen fijo bajo.
+    - Si ducking=True: la voz dispara un sidechain compressor que baja
+      la musica cuando hay voz y la sube cuando no (ducking profesional)."""
     fade_out_st = max(0.0, clip_len - FADE)
+    if ducking:
+        # La musica empieza a volumen mas alto para que el ducking note diferencia.
+        boosted = min(1.0, music_volume * 2.5)
+        return (
+            f"[1:a]volume={boosted}[m_pre];"
+            f"[0:a]asplit=2[v0][v_trig];"
+            f"[m_pre][v_trig]sidechaincompress=threshold=0.04:ratio=12:"
+            f"attack=10:release=350[m_duck];"
+            f"[m_duck]afade=t=in:st=0:d={FADE},"
+            f"afade=t=out:st={fade_out_st}:d={FADE}[m];"
+            f"[v0]afade=t=in:st=0:d={FADE},"
+            f"afade=t=out:st={fade_out_st}:d={FADE}[v];"
+            f"[v][m]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+        )
     return (
         f"[1:a]volume={music_volume},"
         f"afade=t=in:st=0:d={FADE},"
@@ -462,7 +479,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          skip_start: float = 0.0, skip_end: float = 0.0,
          music: str | None = None, with_hook: bool = True,
          music_volume: float = 0.18, grade: str = DEFAULT_GRADE,
-         outro_text: str = "", outro_duration: float = 1.5) -> None:
+         outro_text: str = "", outro_duration: float = 1.5,
+         ducking: bool = False) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -574,7 +592,7 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
 
             if music_path:
                 # Pipeline con musica: dos inputs, filter_complex
-                ac = build_audio_with_music_complex(clip_len, music_volume)
+                ac = build_audio_with_music_complex(clip_len, music_volume, ducking)
                 cmd = [
                     "ffmpeg", "-y",
                     "-ss", str(t0), "-i", str(video),
@@ -588,7 +606,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                     "-movflags", "+faststart",
                     str(out_path),
                 ]
-                feats = "KenBurns + hook + chunks + musica + fades"
+                feats = ("KenBurns + hook + chunks + musica" +
+                         (" (ducking)" if ducking else "") + " + fades")
             else:
                 af = build_audio_filter(clip_len)
                 cmd = [
@@ -647,71 +666,77 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
     print(f"\n[OK] {len(clips)} reels listos en {out_dir}")
 
 
+def _load_profile(name: str) -> list:
+    """Lee profiles/<name>.json y devuelve la lista de args. Devuelve []
+    si no existe o no es valido."""
+    profile_path = Path("profiles") / f"{name}.json"
+    if not profile_path.exists():
+        print(f"[!!] Perfil no encontrado: {profile_path}")
+        return []
+    try:
+        with profile_path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            print(f"[..] Perfil cargado: {name} ({len(data) // 2} flags)")
+            return [str(x) for x in data]
+        if isinstance(data, dict) and "args" in data:
+            args_list = [str(x) for x in data["args"]]
+            print(f"[..] Perfil cargado: {name} ({len(args_list) // 2} flags)")
+            return args_list
+        print(f"[!!] Formato de perfil invalido: {profile_path}")
+    except Exception as e:
+        print(f"[!!] Error leyendo perfil {profile_path}: {e}")
+    return []
+
+
 def parse_args(argv: list):
     args = list(argv)
-    mode = "smart"
-    if "--equal" in args:
-        mode = "equal"
-        args.remove("--equal")
-    target = TARGET_CLIP_LEN
-    if "--duration" in args:
-        idx = args.index("--duration")
-        target = float(args[idx + 1])
-        del args[idx:idx + 2]
-    chunk = WORDS_PER_CHUNK
-    if "--chunk" in args:
-        idx = args.index("--chunk")
-        chunk = int(args[idx + 1])
-        del args[idx:idx + 2]
-    style = DEFAULT_STYLE
-    if "--style" in args:
-        idx = args.index("--style")
-        style = args[idx + 1]
-        del args[idx:idx + 2]
-    skip_start = 0.0
-    if "--skip-start" in args:
-        idx = args.index("--skip-start")
-        skip_start = float(args[idx + 1])
-        del args[idx:idx + 2]
-    skip_end = 0.0
-    if "--skip-end" in args:
-        idx = args.index("--skip-end")
-        skip_end = float(args[idx + 1])
-        del args[idx:idx + 2]
-    music = None
-    if "--music" in args:
-        idx = args.index("--music")
-        music = args[idx + 1]
-        del args[idx:idx + 2]
-    music_volume = 0.18
-    if "--music-vol" in args:
-        idx = args.index("--music-vol")
-        music_volume = float(args[idx + 1])
-        del args[idx:idx + 2]
-    with_hook = True
-    if "--no-hook" in args:
-        with_hook = False
-        args.remove("--no-hook")
-    grade = DEFAULT_GRADE
-    if "--grade" in args:
-        idx = args.index("--grade")
-        grade = args[idx + 1]
-        del args[idx:idx + 2]
-    outro_text = ""
-    if "--outro" in args:
-        idx = args.index("--outro")
-        outro_text = args[idx + 1]
-        del args[idx:idx + 2]
-    outro_duration = 1.5
-    if "--outro-duration" in args:
-        idx = args.index("--outro-duration")
-        outro_duration = float(args[idx + 1])
-        del args[idx:idx + 2]
+
+    # Carga perfil (si --profile esta presente). Los args del perfil van
+    # AL FINAL para que los flags pasados por usuario tengan prioridad.
+    while "--profile" in args:
+        idx = args.index("--profile")
+        if idx + 1 < len(args):
+            profile_name = args[idx + 1]
+            del args[idx:idx + 2]
+            args = args + _load_profile(profile_name)
+        else:
+            del args[idx:idx + 1]
+
+    def extract_first(name, has_value=True):
+        """Extrae PRIMERA ocurrencia y elimina TODAS. Devuelve la primera."""
+        first = None
+        while name in args:
+            i = args.index(name)
+            if has_value:
+                v = args[i + 1] if i + 1 < len(args) else None
+                del args[i:i + 2]
+            else:
+                v = True
+                del args[i:i + 1]
+            if first is None:
+                first = v
+        return first
+
+    mode = "equal" if extract_first("--equal", has_value=False) else "smart"
+    target = float(extract_first("--duration") or TARGET_CLIP_LEN)
+    chunk = int(extract_first("--chunk") or WORDS_PER_CHUNK)
+    style = extract_first("--style") or DEFAULT_STYLE
+    skip_start = float(extract_first("--skip-start") or 0)
+    skip_end = float(extract_first("--skip-end") or 0)
+    music = extract_first("--music")
+    music_volume = float(extract_first("--music-vol") or 0.18)
+    with_hook = not extract_first("--no-hook", has_value=False)
+    grade = extract_first("--grade") or DEFAULT_GRADE
+    outro_text = extract_first("--outro") or ""
+    outro_duration = float(extract_first("--outro-duration") or 1.5)
+    ducking = bool(extract_first("--duck", has_value=False))
+
     if len(args) < 2:
         return None
     return (args[0], int(args[1]), mode, target, chunk, style,
             skip_start, skip_end, music, with_hook, music_volume,
-            grade, outro_text, outro_duration)
+            grade, outro_text, outro_duration, ducking)
 
 
 if __name__ == "__main__":
@@ -720,7 +745,8 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od) = parsed
+     gr, ot, od, dk) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
-         grade=gr, outro_text=ot, outro_duration=od)
+         grade=gr, outro_text=ot, outro_duration=od,
+         ducking=dk)
