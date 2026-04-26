@@ -130,19 +130,42 @@ def main(video_path: str, n_clips: int) -> None:
             out_path = out_dir / f"reel_{clip_id:02d}.mp4"
             ass_arg = ffmpeg_path_for_filter(ass_path)
 
-            # Un solo ffmpeg: cortar + 9:16 centro + escalar + quemar subs + render
-            vf = f"crop=ih*9/16:ih,scale=1080:1920,ass='{ass_arg}'"
+            # Fades de entrada/salida para acabado profesional
+            fade = 0.4
+            fade_out_st = max(0.0, clip_len - fade)
+
+            # Cadena de filtros:
+            #  - crop 9:16 centrado
+            #  - scale a 1080x1920 con lanczos (mas nitido en upscale)
+            #  - eq: leve color pop (saturacion +6%, contraste +3%)
+            #  - ass: quema los subtitulos
+            #  - fade in/out de video y audio (acabado pro)
+            vf = (
+                f"crop=ih*9/16:ih,"
+                f"scale=1080:1920:flags=lanczos,"
+                f"eq=saturation=1.06:contrast=1.03,"
+                f"ass='{ass_arg}',"
+                f"fade=t=in:st=0:d={fade},"
+                f"fade=t=out:st={fade_out_st}:d={fade}"
+            )
+            af = (
+                f"afade=t=in:st=0:d={fade},"
+                f"afade=t=out:st={fade_out_st}:d={fade}"
+            )
+
+            # Encoding mas pulido: preset slow + CRF 18 (calidad alta)
             cmd = [
                 "ffmpeg", "-y",
                 "-ss", str(t0), "-i", str(video),
                 "-t", str(clip_len),
                 "-vf", vf,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-                "-c:a", "aac", "-b:a", "128k",
+                "-af", af,
+                "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+                "-c:a", "aac", "-b:a", "192k",
                 "-movflags", "+faststart",
                 str(out_path),
             ]
-            print(f"[..] Cortando + 9:16 + subs + render")
+            print(f"[..] Cortando + 9:16 + lanczos + color + subs + fades")
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode != 0:
                 print(f"[ERROR] ffmpeg fallo en reel {clip_id}:")
