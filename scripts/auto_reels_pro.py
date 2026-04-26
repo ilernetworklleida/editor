@@ -393,6 +393,32 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                 print(res.stderr[-1500:])
                 continue
             print(f"[OK] {out_path.name}")
+
+            # Miniatura JPG desde el medio del reel (utiL para portada)
+            thumb_path = out_dir / f"reel_{clip_id:02d}.jpg"
+            subprocess.run([
+                "ffmpeg", "-y", "-ss", str(clip_len / 2), "-i", str(out_path),
+                "-frames:v", "1", "-q:v", "2", str(thumb_path),
+            ], capture_output=True)
+
+            # Info + transcripcion (texto natural de Whisper, util para descripciones)
+            info_path = out_dir / f"reel_{clip_id:02d}.txt"
+            clip_text = " ".join(
+                t.strip() for s, e, t in all_segs
+                if s >= t0 - 0.5 and e <= t1 + 0.5
+            )
+            info_path.write_text(
+                f"REEL {clip_id} -- {clip_len:.0f}s\n"
+                f"Origen: {video.name}\n"
+                f"Tiempo en original: {t0:.1f}s -> {t1:.1f}s\n"
+                f"Score smart: {clip.get('score', 0):.2f} | "
+                f"palabras: {clip.get('words', 0)}\n"
+                f"\n"
+                f"TRANSCRIPCION (copia-pega para descripcion):\n"
+                f"{clip_text}\n",
+                encoding="utf-8",
+            )
+            print(f"     + thumbnail .jpg + transcripcion .txt")
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
