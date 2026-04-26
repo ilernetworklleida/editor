@@ -542,7 +542,7 @@ async def run_job(
     style: str = Form("clean"),
     grade: str = Form("none"),
     duration: float = Form(35),
-    chunk: int = Form(3),
+    chunk: str = Form("3"),
     music: str = Form(""),
     music_vol: float = Form(0.18),
     duck: str = Form(""),
@@ -585,8 +585,8 @@ async def run_job(
             args += ["--grade", grade]
         if duration and float(duration) != 35.0:
             args += ["--duration", str(duration)]
-        if chunk and int(chunk) != 3:
-            args += ["--chunk", str(int(chunk))]
+        if chunk and chunk != "3":
+            args += ["--chunk", str(chunk)]
     if music:
         args += ["--music", str(MUSIC_DIR / music)]
         if music_vol and float(music_vol) != 0.18:
@@ -756,6 +756,64 @@ async def profiles_delete(name: str):
     if p.exists():
         p.unlink()
     return RedirectResponse("/profiles", status_code=303)
+
+
+@app.post("/job/{job_id}/variant")
+async def make_variant(
+    job_id: str,
+    new_style: str = Form(...),
+    new_grade: str = Form("none"),
+):
+    """Crea un job nuevo con el mismo video/n_clips/etc pero distinto estilo+grade.
+    Output va a un dir distinto para no pisar el original."""
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job no existe")
+    if new_style not in {"clean", "hype", "money"}:
+        raise HTTPException(400, f"Estilo invalido: {new_style}")
+    if new_grade not in {"none", "warm", "cold", "cinematic", "vivid"}:
+        raise HTTPException(400, f"Grade invalido: {new_grade}")
+
+    # Limpia args originales: quita --profile, --style, --grade, --out-suffix
+    base = list(job["args"])
+    cleaned: list[str] = []
+    skip = 0
+    for i, a in enumerate(base):
+        if skip > 0:
+            skip -= 1
+            continue
+        if a in ("--profile", "--style", "--grade", "--out-suffix"):
+            skip = 1
+            continue
+        cleaned.append(a)
+    suffix = f"_{new_style}_{new_grade}"
+    new_args = cleaned + [
+        "--style", new_style,
+        "--grade", new_grade,
+        "--out-suffix", suffix,
+    ]
+
+    new_job_id = uuid.uuid4().hex[:12]
+    new_job_data = {
+        "id": new_job_id,
+        "video": f"{job['video']} (variante {new_style}/{new_grade})",
+        "url": job.get("url"),
+        "use_yt": job.get("use_yt", False),
+        "n_clips": job["n_clips"],
+        "profile": None,
+        "args": new_args,
+        "status": "queued",
+        "created": datetime.now().isoformat(),
+        "started": None,
+        "ended": None,
+        "out_dir": f"{job['out_dir']}{suffix}",
+        "variant_of": job_id,
+    }
+    save_job(new_job_id, new_job_data)
+    threading.Thread(
+        target=run_pipeline_worker, args=(new_job_id,), daemon=True
+    ).start()
+    return RedirectResponse(f"/job/{new_job_id}", status_code=303)
 
 
 @app.post("/job/{job_id}/montage")

@@ -642,7 +642,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          watermark_pos: str = "br",
          watermark_scale: float = 12.0,
          translate_en: bool = False,
-         ai_highlights: bool = False) -> None:
+         ai_highlights: bool = False,
+         out_suffix: str = "") -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -676,7 +677,7 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
         print(f"[!!] Posicion watermark invalida '{watermark_pos}', uso 'br'")
         watermark_pos = "br"
 
-    out_dir = Path("output") / f"{video.stem}_pro"
+    out_dir = Path("output") / f"{video.stem}_pro{out_suffix}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     duration = get_duration(video)
@@ -710,6 +711,24 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
     if not all_segs:
         print("[ERROR] No se detecto voz")
         sys.exit(1)
+
+    # Smart chunking: si words_chunk == 0 (sentinel "auto"), calcula segun
+    # velocidad de habla. Hablantes rapidos -> 2 palabras (cadencia visual
+    # alta). Hablantes lentos -> 4 palabras. Estandar -> 3.
+    if words_chunk == 0:
+        if all_words and len(all_words) > 10:
+            speak_dur = max(1.0, all_words[-1]["end"] - all_words[0]["start"])
+            wps = len(all_words) / speak_dur
+            if wps > 2.5:
+                words_chunk = 2
+            elif wps < 1.5:
+                words_chunk = 4
+            else:
+                words_chunk = 3
+            print(f"[..] Auto-chunk: {wps:.2f} palabras/seg -> "
+                  f"{words_chunk} palabras/bocadillo")
+        else:
+            words_chunk = WORDS_PER_CHUNK
 
     en_segs: list = []
     if translate_en and info.language != "en":
@@ -985,7 +1004,11 @@ def parse_args(argv: list):
 
     mode = "equal" if extract_first("--equal", has_value=False) else "smart"
     target = float(extract_first("--duration") or TARGET_CLIP_LEN)
-    chunk = int(extract_first("--chunk") or WORDS_PER_CHUNK)
+    chunk_raw = extract_first("--chunk")
+    if chunk_raw == "auto":
+        chunk = 0  # sentinel para auto-chunk basado en WPS
+    else:
+        chunk = int(chunk_raw or WORDS_PER_CHUNK)
     style = extract_first("--style") or DEFAULT_STYLE
     skip_start = float(extract_first("--skip-start") or 0)
     skip_end = float(extract_first("--skip-end") or 0)
@@ -1001,6 +1024,7 @@ def parse_args(argv: list):
     watermark_scale = float(extract_first("--watermark-scale") or 12.0)
     translate_en = bool(extract_first("--translate-en", has_value=False))
     ai_highlights = bool(extract_first("--ai-highlights", has_value=False))
+    out_suffix = extract_first("--out-suffix") or ""
 
     if len(args) < 2:
         return None
@@ -1008,7 +1032,7 @@ def parse_args(argv: list):
             skip_start, skip_end, music, with_hook, music_volume,
             grade, outro_text, outro_duration, ducking,
             watermark, watermark_pos, watermark_scale, translate_en,
-            ai_highlights)
+            ai_highlights, out_suffix)
 
 
 if __name__ == "__main__":
@@ -1017,10 +1041,10 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od, dk, wm, wp, ws, te, ai) = parsed
+     gr, ot, od, dk, wm, wp, ws, te, ai, osfx) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
          grade=gr, outro_text=ot, outro_duration=od,
          ducking=dk, watermark=wm, watermark_pos=wp,
          watermark_scale=ws, translate_en=te,
-         ai_highlights=ai)
+         ai_highlights=ai, out_suffix=osfx)

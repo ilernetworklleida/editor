@@ -116,7 +116,13 @@
 
       <div class="field">
         <label for="chunk">Palabras por bocadillo</label>
-        <input type="number" name="chunk" id="chunk" value="3" min="1" max="6">
+        <select name="chunk" id="chunk">
+          <option value="auto">auto · segun velocidad de habla</option>
+          <option value="2">2 palabras (rapido)</option>
+          <option value="3" selected>3 palabras (estandar)</option>
+          <option value="4">4 palabras (lento)</option>
+          <option value="5">5 palabras</option>
+        </select>
       </div>
 
       <div class="field">
