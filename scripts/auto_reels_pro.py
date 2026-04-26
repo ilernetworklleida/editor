@@ -286,14 +286,40 @@ def get_words_for_clip(all_words: list, t0: float, t1: float) -> list[dict]:
 
 
 def write_chunk_ass(words: list, ass_path: Path, words_per_chunk: int = 3,
-                    style: str = DEFAULT_STYLE) -> None:
-    """Escribe ASS con chunks de N palabras animados (pop-in scale)."""
+                    style: str = DEFAULT_STYLE, with_hook: bool = True) -> None:
+    """Escribe ASS con chunks de N palabras animados (pop-in scale).
+    Si with_hook=True, anade un overlay grande arriba con las primeras
+    3 palabras durante ~1.2s (efecto gancho viral)."""
     header, force_caps = STYLES.get(style, STYLES[DEFAULT_STYLE])
     if not words:
         ass_path.write_text(header, encoding="utf-8")
         return
 
     lines = []
+
+    # ===== HOOK OVERLAY (primeras palabras grandes arriba) =====
+    if with_hook and len(words) >= 1:
+        hook_words = words[:3]
+        hook_text = " ".join(w["word"] for w in hook_words).upper()
+        for ch in [",", ".", "?", "!", ":", ";", "\"", "(", ")"]:
+            hook_text = hook_text.replace(ch, "")
+        hook_text = hook_text.strip()
+        if hook_text:
+            hook_end = max(1.2, hook_words[-1]["end"] + 0.2)
+            # Hook auto-contenido (no depende del estilo principal):
+            # Impact 130, amarillo neon, contorno negro grueso, top-center
+            hook_fx = (
+                r"{\fnImpact\fs130\an8\pos(540,200)"
+                r"\1c&H0000FFFF&\3c&H00000000&\bord10\shad4"
+                r"\fad(120,250)\fscx135\fscy135"
+                r"\t(0,400,\fscx100\fscy100)}"
+            ) + hook_text
+            lines.append(
+                f"Dialogue: 1,{fmt_ass_time(0.0)},{fmt_ass_time(hook_end)},"
+                f"Reels,,0,0,0,,{hook_fx}"
+            )
+
+    # ===== CHUNKS NORMALES =====
     i = 0
     while i < len(words):
         chunk = words[i:i + words_per_chunk]
@@ -378,11 +404,27 @@ def build_audio_filter(clip_len: float) -> str:
     )
 
 
+def build_audio_with_music_complex(clip_len: float, music_volume: float = 0.18) -> str:
+    """Filter complex que mezcla voz (input 0) con musica (input 1) a bajo volumen.
+    Aplica fades a ambos. Devuelve un filter_complex que sale en [aout]."""
+    fade_out_st = max(0.0, clip_len - FADE)
+    return (
+        f"[1:a]volume={music_volume},"
+        f"afade=t=in:st=0:d={FADE},"
+        f"afade=t=out:st={fade_out_st}:d={FADE}[m];"
+        f"[0:a]afade=t=in:st=0:d={FADE},"
+        f"afade=t=out:st={fade_out_st}:d={FADE}[v];"
+        f"[v][m]amix=inputs=2:duration=first:dropout_transition=0[aout]"
+    )
+
+
 # ===== MAIN =====
 
 def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          words_chunk: int, style: str = DEFAULT_STYLE,
-         skip_start: float = 0.0, skip_end: float = 0.0) -> None:
+         skip_start: float = 0.0, skip_end: float = 0.0,
+         music: str | None = None, with_hook: bool = True,
+         music_volume: float = 0.18) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -390,6 +432,15 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
     if style not in STYLES:
         print(f"[ERROR] Estilo invalido '{style}'. Validos: {list(STYLES)}")
         sys.exit(1)
+
+    music_path: str | None = None
+    if music:
+        mp = Path(music)
+        if mp.exists():
+            music_path = str(mp.resolve())
+            print(f"[..] Musica: {mp.name} (vol {music_volume})")
+        else:
+            print(f"[!!] Musica no encontrada: {mp}, render sin musica")
 
     out_dir = Path("output") / f"{video.stem}_pro"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -469,26 +520,45 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                 continue
 
             ass_path = work_dir / f"reel_{clip_id}.ass"
-            write_chunk_ass(clip_words, ass_path, words_chunk, style)
+            write_chunk_ass(clip_words, ass_path, words_chunk, style, with_hook)
 
             out_path = out_dir / f"reel_{clip_id:02d}.mp4"
             ass_arg = ffmpeg_path_for_filter(ass_path)
 
             vf = build_video_filter(clip_len, ass_arg)
-            af = build_audio_filter(clip_len)
 
-            cmd = [
-                "ffmpeg", "-y",
-                "-ss", str(t0), "-i", str(video),
-                "-t", str(clip_len),
-                "-vf", vf,
-                "-af", af,
-                "-c:v", "libx264", "-preset", "slow", "-crf", "18",
-                "-c:a", "aac", "-b:a", "192k",
-                "-movflags", "+faststart",
-                str(out_path),
-            ]
-            print(f"[..] Render: KenBurns + chunks + lanczos + color + fades")
+            if music_path:
+                # Pipeline con musica: dos inputs, filter_complex
+                ac = build_audio_with_music_complex(clip_len, music_volume)
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-ss", str(t0), "-i", str(video),
+                    "-stream_loop", "-1", "-i", music_path,
+                    "-t", str(clip_len),
+                    "-filter_complex", f"[0:v]{vf}[vout];{ac}",
+                    "-map", "[vout]", "-map", "[aout]",
+                    "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-shortest",
+                    "-movflags", "+faststart",
+                    str(out_path),
+                ]
+                feats = "KenBurns + hook + chunks + musica + fades"
+            else:
+                af = build_audio_filter(clip_len)
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-ss", str(t0), "-i", str(video),
+                    "-t", str(clip_len),
+                    "-vf", vf,
+                    "-af", af,
+                    "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart",
+                    str(out_path),
+                ]
+                feats = "KenBurns + hook + chunks + lanczos + color + fades"
+            print(f"[..] Render: {feats}")
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode != 0:
                 print(f"[ERROR] ffmpeg fallo en reel {clip_id}:")
@@ -563,10 +633,24 @@ def parse_args(argv: list):
         idx = args.index("--skip-end")
         skip_end = float(args[idx + 1])
         del args[idx:idx + 2]
+    music = None
+    if "--music" in args:
+        idx = args.index("--music")
+        music = args[idx + 1]
+        del args[idx:idx + 2]
+    music_volume = 0.18
+    if "--music-vol" in args:
+        idx = args.index("--music-vol")
+        music_volume = float(args[idx + 1])
+        del args[idx:idx + 2]
+    with_hook = True
+    if "--no-hook" in args:
+        with_hook = False
+        args.remove("--no-hook")
     if len(args) < 2:
         return None
     return (args[0], int(args[1]), mode, target, chunk, style,
-            skip_start, skip_end)
+            skip_start, skip_end, music, with_hook, music_volume)
 
 
 if __name__ == "__main__":
@@ -574,4 +658,6 @@ if __name__ == "__main__":
     if not parsed:
         print(__doc__)
         sys.exit(1)
-    main(*parsed)
+    (vp, n, mode, td, ch, st, ss, se, mu, hk, mv) = parsed
+    main(vp, n, mode, td, ch, st, ss, se,
+         music=mu, with_hook=hk, music_volume=mv)

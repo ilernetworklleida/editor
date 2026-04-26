@@ -17,6 +17,10 @@ input/*
 output/*
 !output/.gitkeep
 
+# Musica (mp3 grandes, propia/libre del usuario)
+music/*
+!music/.gitkeep
+
 # Cache modelos Whisper
 .cache/
 
