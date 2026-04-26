@@ -122,14 +122,22 @@ Como el simple pero MUCHO mejor:
 - **Estilo**: Arial Black 88px, blanco con outline negro grueso.
 ```bash
 python scripts/auto_reels_pro.py input/video.mp4 6
-python scripts/auto_reels_pro.py input/video.mp4 6 --equal       # corte en N partes iguales (con smart-cuts)
-python scripts/auto_reels_pro.py input/video.mp4 6 --duration 30 # clips de 30s en vez de 35s
-python scripts/auto_reels_pro.py input/video.mp4 6 --chunk 4     # 4 palabras por bocadillo
+python scripts/auto_reels_pro.py input/video.mp4 6 --equal              # corte en N partes iguales
+python scripts/auto_reels_pro.py input/video.mp4 6 --duration 30        # clips de 30s en vez de 35s
+python scripts/auto_reels_pro.py input/video.mp4 6 --chunk 4            # 4 palabras por bocadillo
+python scripts/auto_reels_pro.py input/video.mp4 6 --style hype         # subs amarillo viral (clean/hype/money)
+python scripts/auto_reels_pro.py input/video.mp4 6 --skip-start 60 --skip-end 30  # ignora intro y outro
 ```
+
+**Estilos de subtitulos** (`--style`):
+- `clean` (default): Arial Black blanco sin caps, sobrio. Ideal tutoriales/educativo.
+- `hype`: Impact amarillo en CAPS, mas grande. Estilo TikTok/viral.
+- `money`: Arial Black verde con outline blanco en CAPS. Estilo finanzas/business.
 Salida por cada reel:
 - `reel_NN.mp4` — el video listo para subir
 - `reel_NN.jpg` — miniatura (frame del medio) por si quieres portada custom
-- `reel_NN.txt` — transcripcion del clip + metadata, copia-pega para descripcion
+- `reel_NN.txt` — transcripcion del clip + metadata + **hashtags sugeridos** (heuristica
+  sobre las palabras mas frecuentes del clip, sin acentos, sin stopwords)
 
 ### 04 — Comprimir para web (batch)
 Procesa TODA la carpeta `input/` con preset web (H.264 + faststart).
