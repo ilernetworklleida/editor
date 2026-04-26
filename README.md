@@ -46,7 +46,9 @@ Editor/
 │   ├── 01_subtitular.py       audio -> .srt automatico (Whisper)
 │   ├── 02_clips_de_largo.py   1 video largo -> N clips (vertical opcional)
 │   ├── 03_cortar_silencios.py limpia pausas largas
-│   └── 04_comprimir_web.py    batch optimizar para web (H.264)
+│   ├── 04_comprimir_web.py    batch optimizar para web (H.264)
+│   ├── auto_reels.py          [BOTON SIMPLE] N reels verticales subtitulados
+│   └── auto_reels_pro.py      [BOTON PRO] highlights + chunks + KenBurns + fades
 ├── requirements.txt
 └── README.md
 ```
@@ -87,6 +89,33 @@ python scripts/03_cortar_silencios.py input/video.mp4 --umbral -30 --min 0.7
 - `--min`: duracion minima del silencio en segundos (default 0.7)
 
 Salida: `output/video_sin_silencios.mp4`
+
+### auto_reels.py — Boton simple: 1 video -> N reels subtitulados
+Pipeline en 1 comando: trocea en N partes iguales + 9:16 + subtitula
++ quema subs (linea por linea) + fades + color pop + lanczos + CRF 18.
+```bash
+python scripts/auto_reels.py input/video.mp4 6
+```
+Salida: `output/<video>_reels/reel_01.mp4 ... reel_06.mp4`
+
+### auto_reels_pro.py — Boton PRO: smart highlights + estilo viral
+Como el simple pero MUCHO mejor:
+- **Smart highlights**: detecta los N momentos mas interesantes (densidad de
+  palabras), no trocea en partes iguales. Si no encuentra suficientes,
+  rellena los huecos con clips alineados a frase.
+- **Smart cuts**: cortes alineados a final de frase (no parte palabras).
+- **Word chunks**: subtitulos en grupos de 3 palabras animados con pop-in
+  (estilo viral Reels), no linea entera.
+- **Ken Burns**: zoom progresivo 6% durante cada clip -> sensacion de
+  movimiento sin tu hacer nada.
+- **Estilo**: Arial Black 88px, blanco con outline negro grueso.
+```bash
+python scripts/auto_reels_pro.py input/video.mp4 6
+python scripts/auto_reels_pro.py input/video.mp4 6 --equal       # corte en N partes iguales (con smart-cuts)
+python scripts/auto_reels_pro.py input/video.mp4 6 --duration 30 # clips de 30s en vez de 35s
+python scripts/auto_reels_pro.py input/video.mp4 6 --chunk 4     # 4 palabras por bocadillo
+```
+Salida: `output/<video>_pro/reel_01.mp4 ... reel_06.mp4`
 
 ### 04 — Comprimir para web (batch)
 Procesa TODA la carpeta `input/` con preset web (H.264 + faststart).
