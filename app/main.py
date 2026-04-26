@@ -165,6 +165,55 @@ def list_jobs(limit: int = 12) -> list[dict]:
     return out
 
 
+def reset_orphan_jobs() -> None:
+    """Al arrancar, marca jobs en running/queued como 'interrupted' (porque
+    el subprocess se mato al reiniciar el servidor)."""
+    if not JOBS_DIR.exists():
+        return
+    fixed = 0
+    now = datetime.now().isoformat()
+    for p in JOBS_DIR.glob("*.json"):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+            if d.get("status") in ("running", "queued"):
+                d["status"] = "interrupted"
+                d["ended"] = d.get("ended") or now
+                p.write_text(
+                    json.dumps(d, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                fixed += 1
+        except Exception:
+            pass
+    if fixed:
+        print(f"[startup] {fixed} jobs huerfanos marcados como 'interrupted'")
+
+
+def kill_process_tree(pid: int) -> bool:
+    """Mata un proceso y todos sus hijos (cross-platform)."""
+    try:
+        if sys.platform == "win32":
+            res = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, text=True,
+            )
+            return res.returncode == 0
+        else:
+            import os as _os
+            import signal as _sig
+            try:
+                _os.killpg(_os.getpgid(pid), _sig.SIGTERM)
+            except ProcessLookupError:
+                return False
+            return True
+    except Exception as e:
+        print(f"[kill] error matando PID {pid}: {e}")
+        return False
+
+
+reset_orphan_jobs()
+
+
 def find_reels(out_dir_name: str) -> list[dict]:
     out_dir = OUTPUT_DIR / out_dir_name
     if not out_dir.exists():
@@ -211,29 +260,41 @@ def run_pipeline_worker(job_id: str) -> None:
     cmd = [sys.executable, str(SCRIPTS_DIR / "auto_reels_pro.py")] + list(job["args"])
     log_path = JOBS_DIR / f"{job_id}.log"
 
+    popen_kwargs: dict = dict(
+        cwd=str(ROOT),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+        bufsize=1,
+    )
+    if sys.platform != "win32":
+        popen_kwargs["start_new_session"] = True  # process group para killpg
+
     try:
         with log_path.open("w", encoding="utf-8") as logf:
-            proc = subprocess.Popen(
-                cmd, cwd=str(ROOT),
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace",
-                bufsize=1,
-            )
+            proc = subprocess.Popen(cmd, **popen_kwargs)
+            # Persiste el PID para soportar /cancel
+            job = load_job(job_id) or job
+            job["pid"] = proc.pid
+            save_job(job_id, job)
             assert proc.stdout is not None
             for line in proc.stdout:
                 logf.write(line)
                 logf.flush()
             rc = proc.wait()
         job = load_job(job_id) or job
-        job["status"] = "done" if rc == 0 else "error"
+        # Si ya fue cancelado, respeta ese estado
+        if job.get("status") != "cancelled":
+            job["status"] = "done" if rc == 0 else "error"
         job["return_code"] = rc
         job["ended"] = datetime.now().isoformat()
+        job.pop("pid", None)
         save_job(job_id, job)
     except Exception as e:
         job = load_job(job_id) or job
         job["status"] = "error"
         job["error"] = str(e)
         job["ended"] = datetime.now().isoformat()
+        job.pop("pid", None)
         save_job(job_id, job)
 
 
@@ -388,6 +449,117 @@ async def job_detail(request: Request, job_id: str):
         "reels": reels,
         "montage_url": montage_url,
     })
+
+
+@app.post("/job/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job no existe")
+    if job.get("status") not in ("running", "queued"):
+        return JSONResponse({"error": f"Job esta {job.get('status')}"},
+                            status_code=400)
+    pid = job.get("pid")
+    if pid:
+        kill_process_tree(int(pid))
+    job["status"] = "cancelled"
+    job["ended"] = datetime.now().isoformat()
+    save_job(job_id, job)
+    return JSONResponse({"status": "cancelled"})
+
+
+# ===== Profile editor =====
+
+def _read_profile_args(name: str) -> list:
+    p = PROFILES_DIR / f"{name}.json"
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [str(x) for x in data]
+        if isinstance(data, dict) and "args" in data:
+            return [str(x) for x in data["args"]]
+    except Exception:
+        pass
+    return []
+
+
+def _args_to_text(args: list) -> str:
+    """Convierte ['--style','hype','--grade','vivid'] -> texto multilinea."""
+    out = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if not a.startswith("--"):
+            i += 1
+            continue
+        is_bool = a in {"--equal", "--no-hook", "--duck", "--translate-en"}
+        if is_bool or i + 1 >= len(args) or args[i + 1].startswith("--"):
+            out.append(a)
+            i += 1
+        else:
+            out.append(f"{a} {args[i + 1]}")
+            i += 2
+    return "\n".join(out)
+
+
+def _text_to_args(text: str) -> list:
+    """Convierte texto multilinea -> lista de args."""
+    out: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        flag = parts[0]
+        if not flag.startswith("--"):
+            continue
+        if len(parts) == 1:
+            out.append(flag)
+        else:
+            out.append(flag)
+            out.append(parts[1].strip())
+    return out
+
+
+@app.get("/profiles", response_class=HTMLResponse)
+async def profiles_page(request: Request, edit: str = ""):
+    profiles = list_profiles()
+    active = edit if edit in profiles else (edit if edit == "" else "")
+    is_new = (edit == "" and not active) or (edit != "" and edit not in profiles)
+    args = _read_profile_args(active) if active in profiles else []
+    flags_text = _args_to_text(args)
+    return templates.TemplateResponse(request, "profiles.html", {
+        "profiles": profiles,
+        "active": active,
+        "is_new": is_new,
+        "flags_text": flags_text,
+    })
+
+
+@app.post("/profiles/save")
+async def profiles_save(
+    name: str = Form(...),
+    flags_text: str = Form(""),
+):
+    safe = "".join(c for c in name if c.isalnum() or c in ("_", "-"))
+    if not safe:
+        raise HTTPException(400, "Nombre invalido (solo letras/numeros/-_)")
+    args = _text_to_args(flags_text)
+    p = PROFILES_DIR / f"{safe}.json"
+    p.write_text(json.dumps(args, indent=4, ensure_ascii=False) + "\n",
+                 encoding="utf-8")
+    return RedirectResponse(f"/profiles?edit={safe}", status_code=303)
+
+
+@app.post("/profiles/{name}/delete")
+async def profiles_delete(name: str):
+    safe = "".join(c for c in name if c.isalnum() or c in ("_", "-"))
+    p = PROFILES_DIR / f"{safe}.json"
+    if p.exists():
+        p.unlink()
+    return RedirectResponse("/profiles", status_code=303)
 
 
 @app.post("/job/{job_id}/montage")

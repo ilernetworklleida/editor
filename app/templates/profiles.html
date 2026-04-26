@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Perfiles · Editor{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+  Volver
+</a>
+
+<section class="hero" style="margin-bottom: var(--space-5);">
+  <h1>Perfiles</h1>
+  <p class="hero-sub">Combos de flags reutilizables. Editas aqui sin tocar JSON a mano.</p>
+</section>
+
+<div class="profiles-layout">
+  <aside class="profiles-sidebar card">
+    <h3 class="sidebar-title">Listado</h3>
+    <ul class="profiles-list">
+      {% for p in profiles %}
+        <li>
+          <a href="/profiles?edit={{ p }}" class="{% if p == active %}is-active{% endif %}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+            {{ p }}
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+    <a href="/profiles?edit=__new__" class="btn-link sidebar-new">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      Nuevo perfil
+    </a>
+  </aside>
+
+  <section class="profiles-editor card">
+    <h2 class="card-title">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+      {% if is_new %}Crear perfil{% else %}Editar <code>{{ active }}</code>{% endif %}
+    </h2>
+    <form method="post" action="/profiles/save" class="profile-form">
+      <div class="field">
+        <label for="name">Nombre</label>
+        <input type="text" name="name" id="name"
+               value="{% if not is_new %}{{ active }}{% endif %}"
+               placeholder="mi_canal" pattern="[a-zA-Z0-9_-]+" required
+               {% if not is_new %}readonly{% endif %}>
+        <small>Solo letras, numeros, guion y guion bajo.</small>
+      </div>
+      <div class="field">
+        <label for="flags_text">Flags (uno por linea)</label>
+        <textarea name="flags_text" id="flags_text" rows="12"
+                  placeholder="--style hype&#10;--grade cinematic&#10;--chunk 2&#10;--duration 25&#10;--outro @tu_canal\nSigueme&#10;--duck">{{ flags_text }}</textarea>
+        <small>Formato: <code>--flag valor</code> por linea. Booleanos como <code>--duck</code> sin valor.</small>
+      </div>
+      <div class="profile-actions">
+        <button type="submit" class="btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Guardar
+        </button>
+        {% if not is_new %}
+          <button type="submit" class="btn-link btn-danger"
+                  formaction="/profiles/{{ active }}/delete" formmethod="post"
+                  onclick="return confirm('Eliminar perfil {{ active }}?');">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>
+            Eliminar
+          </button>
+        {% endif %}
+      </div>
+    </form>
+
+    <details class="profile-help">
+      <summary>Flags disponibles</summary>
+      <pre>--style {clean|hype|money}
+--grade {none|warm|cold|cinematic|vivid}
+--duration N        (segundos por reel)
+--chunk N           (palabras por bocadillo)
+--skip-start N
+--skip-end N
+--music path/al/mp3
+--music-vol 0.18
+--duck              (true ducking de musica)
+--watermark path/al/png
+--watermark-pos {br|bl|tr|tl}
+--watermark-scale 12
+--outro "@canal\nCTA"
+--outro-duration 1.5
+--no-hook           (quita gancho del inicio)
+--translate-en      (subs EN extra)
+--equal             (corte equal en vez de smart highlights)</pre>
+    </details>
+  </section>
+</div>
+{% endblock %}

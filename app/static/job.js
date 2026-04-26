@@ -17,6 +17,29 @@
     if (!badge) return;
     badge.className = `badge badge-${status}`;
     badge.textContent = status;
+    // Esconde el boton de cancelar cuando ya no aplica
+    const cancelBtn = document.getElementById("cancelBtn");
+    if (cancelBtn) {
+      cancelBtn.hidden = !["running", "queued"].includes(status);
+    }
+  }
+
+  // Wire cancel button
+  const cancelBtn = document.getElementById("cancelBtn");
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", async () => {
+      if (!confirm("Cancelar este job? Se matara el subprocess.")) return;
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = "Cancelando...";
+      try {
+        const res = await fetch(`/job/${cancelBtn.dataset.jobId}/cancel`, { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // El polling seguira y vera status=cancelled en la siguiente vuelta
+      } catch (e) {
+        alert("Error cancelando: " + e.message);
+        cancelBtn.disabled = false;
+      }
+    });
   }
 
   function renderReels(reels) {
