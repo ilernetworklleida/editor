@@ -48,7 +48,8 @@ Editor/
 │   ├── 03_cortar_silencios.py limpia pausas largas
 │   ├── 04_comprimir_web.py    batch optimizar para web (H.264)
 │   ├── auto_reels.py          [BOTON SIMPLE] N reels verticales subtitulados
-│   └── auto_reels_pro.py      [BOTON PRO] highlights + chunks + KenBurns + fades
+│   ├── auto_reels_pro.py      [BOTON PRO] highlights + chunks + KenBurns + fades
+│   └── auto_yt.py             [URL -> REELS] baja de YouTube + procesa pro en 1 comando
 ├── requirements.txt
 └── README.md
 ```
@@ -98,6 +99,16 @@ python scripts/auto_reels.py input/video.mp4 6
 ```
 Salida: `output/<video>_reels/reel_01.mp4 ... reel_06.mp4`
 
+### auto_yt.py — Boton magico desde URL
+Un solo comando: pega URL de YouTube, indica cuantos reels quieres, listo.
+Cachea el video en `input/yt_<ID>.mp4` para no re-bajar si re-procesas.
+```bash
+python scripts/auto_yt.py "https://youtube.com/watch?v=ID" 6
+python scripts/auto_yt.py "https://youtube.com/watch?v=ID" 6 --range 60 600   # solo de 60s a 10min
+python scripts/auto_yt.py "https://youtube.com/watch?v=ID" 6 --duration 30 --chunk 4
+```
+Internamente llama a auto_reels_pro.py con todos sus features.
+
 ### auto_reels_pro.py — Boton PRO: smart highlights + estilo viral
 Como el simple pero MUCHO mejor:
 - **Smart highlights**: detecta los N momentos mas interesantes (densidad de
@@ -115,7 +126,10 @@ python scripts/auto_reels_pro.py input/video.mp4 6 --equal       # corte en N pa
 python scripts/auto_reels_pro.py input/video.mp4 6 --duration 30 # clips de 30s en vez de 35s
 python scripts/auto_reels_pro.py input/video.mp4 6 --chunk 4     # 4 palabras por bocadillo
 ```
-Salida: `output/<video>_pro/reel_01.mp4 ... reel_06.mp4`
+Salida por cada reel:
+- `reel_NN.mp4` — el video listo para subir
+- `reel_NN.jpg` — miniatura (frame del medio) por si quieres portada custom
+- `reel_NN.txt` — transcripcion del clip + metadata, copia-pega para descripcion
 
 ### 04 — Comprimir para web (batch)
 Procesa TODA la carpeta `input/` con preset web (H.264 + faststart).
