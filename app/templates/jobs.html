@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Jobs · Editor{% endblock %}
+
+{% block content %}
+<section class="hero" style="margin-bottom: var(--space-5);">
+  <h1>Jobs</h1>
+  <p class="hero-sub">{{ total }} jobs en total. Filtra por video, perfil o estado.</p>
+</section>
+
+<form method="get" action="/jobs" class="card jobs-filter">
+  <div class="grid">
+    <div class="field">
+      <label for="q">Buscar</label>
+      <input type="search" name="q" id="q" value="{{ q }}"
+             placeholder="nombre del video, perfil, ID..." autofocus>
+    </div>
+    <div class="field">
+      <label for="status">Estado</label>
+      <select name="status" id="status">
+        <option value="" {% if not status_filter %}selected{% endif %}>todos</option>
+        <option value="queued" {% if status_filter=='queued' %}selected{% endif %}>queued</option>
+        <option value="running" {% if status_filter=='running' %}selected{% endif %}>running</option>
+        <option value="done" {% if status_filter=='done' %}selected{% endif %}>done</option>
+        <option value="error" {% if status_filter=='error' %}selected{% endif %}>error</option>
+        <option value="cancelled" {% if status_filter=='cancelled' %}selected{% endif %}>cancelled</option>
+        <option value="interrupted" {% if status_filter=='interrupted' %}selected{% endif %}>interrupted</option>
+      </select>
+    </div>
+  </div>
+  <button type="submit" class="btn-primary" style="margin-top: var(--space-3);">Filtrar</button>
+</form>
+
+{% if jobs %}
+<section class="recent-section">
+  <div class="recent-grid">
+    {% for j in jobs %}
+      <a href="/job/{{ j.id }}" class="recent-card status-{{ j.status }}">
+        <div class="recent-card-head">
+          <span class="badge badge-{{ j.status }}">{{ j.status }}</span>
+          <span class="recent-time">{{ j.created[:16] | replace('T', ' ') }}</span>
+        </div>
+        <div class="recent-video">{{ j.video }}</div>
+        <div class="recent-meta">{{ j.n_clips }} reels{% if j.profile %} · perfil <code>{{ j.profile }}</code>{% endif %}</div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+{% if pages > 1 %}
+<nav class="pagination">
+  {% if page > 1 %}
+    <a href="/jobs?page={{ page-1 }}&q={{ q }}&status={{ status_filter }}" class="btn-link">&larr; anterior</a>
+  {% endif %}
+  <span class="page-info">Pagina {{ page }} de {{ pages }}</span>
+  {% if page < pages %}
+    <a href="/jobs?page={{ page+1 }}&q={{ q }}&status={{ status_filter }}" class="btn-link">siguiente &rarr;</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="empty-state card" style="text-align: center; padding: var(--space-7);">
+  <p style="color: var(--text-muted);">Ningun job encontrado.</p>
+</div>
+{% endif %}
+{% endblock %}

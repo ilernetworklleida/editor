@@ -155,21 +155,33 @@ def save_job(job_id: str, data: dict) -> None:
     p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def list_jobs(limit: int = 12) -> list[dict]:
+def list_jobs(limit: int = 12, offset: int = 0,
+              search: str = "", status: str = "") -> tuple[list[dict], int]:
+    """Devuelve (jobs_pagina, total). Filtra por search en video/profile y status."""
     if not JOBS_DIR.exists():
-        return []
+        return [], 0
     files = sorted(
         JOBS_DIR.glob("*.json"),
         key=lambda x: x.stat().st_mtime,
         reverse=True,
     )
-    out = []
-    for p in files[:limit]:
+    all_jobs: list[dict] = []
+    for p in files:
         try:
-            out.append(json.loads(p.read_text(encoding="utf-8")))
+            d = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
-    return out
+        if search:
+            blob = (
+                f"{d.get('video','')} {d.get('profile','')} {d.get('id','')}"
+            ).lower()
+            if search.lower() not in blob:
+                continue
+        if status and d.get("status") != status:
+            continue
+        all_jobs.append(d)
+    total = len(all_jobs)
+    return all_jobs[offset:offset + limit], total
 
 
 def reset_orphan_jobs() -> None:
@@ -351,14 +363,70 @@ async def logout(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    recent, _ = list_jobs(limit=8)
     return templates.TemplateResponse(request, "home.html", {
         "videos": list_videos(),
         "profiles": list_profiles(),
         "music_files": _list_dir(MUSIC_DIR, MUSIC_EXTS),
         "watermarks": _list_dir(BRANDING_DIR, IMG_EXTS),
-        "recent_jobs": list_jobs(limit=8),
+        "recent_jobs": recent,
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
     })
+
+
+@app.get("/jobs", response_class=HTMLResponse)
+async def jobs_page(
+    request: Request,
+    page: int = 1,
+    q: str = "",
+    status: str = "",
+):
+    page = max(1, page)
+    per_page = 20
+    offset = (page - 1) * per_page
+    jobs, total = list_jobs(
+        limit=per_page, offset=offset, search=q, status=status
+    )
+    pages = max(1, (total + per_page - 1) // per_page)
+    return templates.TemplateResponse(request, "jobs.html", {
+        "jobs": jobs,
+        "total": total,
+        "page": page,
+        "pages": pages,
+        "q": q,
+        "status_filter": status,
+        "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
+    })
+
+
+@app.get("/job/{job_id}/zip")
+async def job_zip(job_id: str):
+    """Descarga todos los outputs del job como ZIP."""
+    import io
+    import zipfile
+
+    job = load_job(job_id)
+    if not job or not job.get("out_dir"):
+        raise HTTPException(404, "Job no existe")
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    if not out_dir.exists():
+        raise HTTPException(404, "No hay outputs")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        for p in sorted(out_dir.rglob("*")):
+            if p.is_file():
+                zf.write(p, arcname=str(p.relative_to(out_dir)))
+        montage = OUTPUT_DIR / f"{job['out_dir']}_montage.mp4"
+        if montage.exists():
+            zf.write(montage, arcname=f"_montage/{montage.name}")
+    buf.seek(0)
+    fname = f"{job['out_dir']}.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @app.post("/upload")

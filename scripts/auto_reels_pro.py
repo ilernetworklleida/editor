@@ -900,12 +900,17 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
             )
             tags = generate_hashtags(clip_text, info.language, max_n=8)
             tags_line = " ".join(tags) if tags else "(sin hashtags sugeridos)"
+            ai_reason = clip.get("reason", "").strip()
+            ai_block = (
+                f"\nMOTIVO IA (Claude): {ai_reason}\n" if ai_reason else ""
+            )
             info_path.write_text(
                 f"REEL {clip_id} -- {clip_len:.0f}s -- estilo: {style}\n"
                 f"Origen: {video.name}\n"
                 f"Tiempo en original: {t0:.1f}s -> {t1:.1f}s\n"
                 f"Score smart: {clip.get('score', 0):.2f} | "
                 f"palabras: {clip.get('words', 0)}\n"
+                f"{ai_block}"
                 f"\n"
                 f"TRANSCRIPCION (copia-pega para descripcion):\n"
                 f"{clip_text}\n"
