@@ -591,6 +591,43 @@ input[type="file"]::file-selector-button {
   color: var(--text-muted);
 }
 
+/* ===== Stats page ===== */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.stat-card h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-dim);
+  margin: 0 0 var(--space-3);
+}
+.stat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.stat-table tr { border-top: 1px solid var(--border); }
+.stat-table tr:first-child { border-top: none; }
+.stat-table td {
+  padding: 10px 0;
+  color: var(--text-muted);
+}
+.stat-table td:last-child {
+  text-align: right;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.stat-table .row-success td:first-child { color: var(--success); }
+.stat-table .row-error td:first-child { color: var(--error); }
+.stat-table .row-warn td:first-child { color: var(--warning); }
+.stat-table .row-total td { color: var(--text); }
+.cleanup-card { margin-top: var(--space-5); }
+
 /* ===== Jobs page ===== */
 .jobs-filter {
   margin-bottom: var(--space-4);

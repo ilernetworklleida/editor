@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Estadisticas · Editor{% endblock %}
+
+{% block content %}
+<section class="hero" style="margin-bottom: var(--space-5);">
+  <h1>Estadisticas</h1>
+  <p class="hero-sub">Uso de disco y estado de jobs.</p>
+</section>
+
+<div class="stats-grid">
+  <div class="card stat-card">
+    <h3>Jobs por estado</h3>
+    <table class="stat-table">
+      <tr><td>queued</td><td>{{ stats.jobs.queued }}</td></tr>
+      <tr><td>running</td><td>{{ stats.jobs.running }}</td></tr>
+      <tr class="row-success"><td>done</td><td>{{ stats.jobs.done }}</td></tr>
+      <tr class="row-error"><td>error</td><td>{{ stats.jobs.error }}</td></tr>
+      <tr class="row-warn"><td>cancelled</td><td>{{ stats.jobs.cancelled }}</td></tr>
+      <tr class="row-warn"><td>interrupted</td><td>{{ stats.jobs.interrupted }}</td></tr>
+      <tr class="row-total"><td><strong>total</strong></td><td><strong>{{ stats.jobs.total }}</strong></td></tr>
+    </table>
+  </div>
+
+  <div class="card stat-card">
+    <h3>Disco</h3>
+    <table class="stat-table">
+      <tr><td>input/</td><td>{{ stats.disk.input_mb }} MB</td></tr>
+      <tr><td>output/</td><td>{{ stats.disk.output_mb }} MB</td></tr>
+      <tr><td>music/</td><td>{{ stats.disk.music_mb }} MB</td></tr>
+      <tr><td>branding/</td><td>{{ stats.disk.branding_mb }} MB</td></tr>
+      <tr><td>jobs/</td><td>{{ stats.disk.jobs_mb }} MB</td></tr>
+      <tr class="row-total"><td><strong>total</strong></td><td><strong>{{ stats.disk.total_gb }} GB</strong></td></tr>
+    </table>
+  </div>
+
+  <div class="card stat-card">
+    <h3>Recursos</h3>
+    <table class="stat-table">
+      <tr><td>videos en input/</td><td>{{ stats.files.videos_input }}</td></tr>
+      <tr><td>pistas de musica</td><td>{{ stats.files.music_tracks }}</td></tr>
+      <tr><td>watermarks</td><td>{{ stats.files.watermarks }}</td></tr>
+      <tr><td>perfiles</td><td>{{ stats.files.profiles }}</td></tr>
+    </table>
+  </div>
+</div>
+
+<section class="card cleanup-card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path></svg>
+    Limpieza de jobs antiguos
+  </h2>
+  <form method="post" action="/jobs/cleanup" onsubmit="return confirm('Borrar jobs y outputs? Esta accion no se puede deshacer.');">
+    <div class="grid">
+      <div class="field">
+        <label for="older_than_days">Borrar jobs anteriores a (dias)</label>
+        <input type="number" name="older_than_days" id="older_than_days" value="30" min="1">
+      </div>
+      <div class="field field-checkbox" style="padding-top: 22px;">
+        <label class="check-row">
+          <input type="checkbox" name="only_failed" id="only_failed">
+          <span>Solo borrar fallidos / cancelados</span>
+        </label>
+      </div>
+      <div class="field field-checkbox">
+        <label class="check-row">
+          <input type="checkbox" name="delete_outputs" id="delete_outputs" checked>
+          <span>Borrar tambien sus archivos de output (.mp4, .jpg, .txt, montage)</span>
+        </label>
+      </div>
+    </div>
+    <button type="submit" class="btn-link btn-danger" style="margin-top: var(--space-3);">
+      Limpiar
+    </button>
+  </form>
+</section>
+{% endblock %}

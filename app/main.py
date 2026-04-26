@@ -266,6 +266,65 @@ def find_montage(out_dir_name: str) -> str | None:
     return None
 
 
+def dir_size(path: Path) -> int:
+    """Tamano total en bytes de los archivos en un directorio (recursivo)."""
+    if not path.exists():
+        return 0
+    total = 0
+    for p in path.rglob("*"):
+        if p.is_file():
+            try:
+                total += p.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def collect_stats() -> dict:
+    """Estadisticas globales de uso del proyecto."""
+    counts = {"queued": 0, "running": 0, "done": 0, "error": 0,
+              "cancelled": 0, "interrupted": 0}
+    total_jobs = 0
+    if JOBS_DIR.exists():
+        for p in JOBS_DIR.glob("*.json"):
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+                s = d.get("status", "unknown")
+                counts[s] = counts.get(s, 0) + 1
+                total_jobs += 1
+            except Exception:
+                continue
+
+    input_bytes = dir_size(INPUT_DIR)
+    output_bytes = dir_size(OUTPUT_DIR)
+    music_bytes = dir_size(MUSIC_DIR)
+    branding_bytes = dir_size(BRANDING_DIR)
+    jobs_bytes = dir_size(JOBS_DIR)
+    total_bytes = (
+        input_bytes + output_bytes + music_bytes
+        + branding_bytes + jobs_bytes
+    )
+
+    return {
+        "jobs": {**counts, "total": total_jobs},
+        "disk": {
+            "input_mb": round(input_bytes / (1024 * 1024), 1),
+            "output_mb": round(output_bytes / (1024 * 1024), 1),
+            "music_mb": round(music_bytes / (1024 * 1024), 1),
+            "branding_mb": round(branding_bytes / (1024 * 1024), 1),
+            "jobs_mb": round(jobs_bytes / (1024 * 1024), 1),
+            "total_mb": round(total_bytes / (1024 * 1024), 1),
+            "total_gb": round(total_bytes / (1024 * 1024 * 1024), 2),
+        },
+        "files": {
+            "videos_input": len(_list_dir(INPUT_DIR, VIDEO_EXTS)),
+            "music_tracks": len(_list_dir(MUSIC_DIR, MUSIC_EXTS)),
+            "watermarks": len(_list_dir(BRANDING_DIR, IMG_EXTS)),
+            "profiles": len(list_profiles()),
+        },
+    }
+
+
 # ===== Pipeline runner =====
 
 def run_pipeline_worker(job_id: str) -> None:
@@ -746,3 +805,59 @@ async def api_job(job_id: str):
 @app.get("/api/health")
 async def health():
     return {"ok": True, "version": "1.0"}
+
+
+@app.get("/api/stats")
+async def api_stats():
+    return JSONResponse(collect_stats())
+
+
+@app.get("/stats", response_class=HTMLResponse)
+async def stats_page(request: Request):
+    return templates.TemplateResponse(request, "stats.html", {
+        "stats": collect_stats(),
+        "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
+    })
+
+
+@app.post("/jobs/cleanup")
+async def jobs_cleanup(
+    older_than_days: int = Form(30),
+    only_failed: str = Form(""),
+    delete_outputs: str = Form("on"),
+):
+    """Borra metadata de jobs viejos y opcionalmente sus outputs."""
+    from datetime import timedelta
+    cutoff = (datetime.now() - timedelta(days=int(older_than_days))).timestamp()
+    deleted_jobs = 0
+    deleted_dirs = 0
+    freed_bytes = 0
+    if not JOBS_DIR.exists():
+        return RedirectResponse("/stats", status_code=303)
+    for jp in list(JOBS_DIR.glob("*.json")):
+        try:
+            if jp.stat().st_mtime > cutoff:
+                continue
+            d = json.loads(jp.read_text(encoding="utf-8"))
+            if only_failed == "on" and d.get("status") not in (
+                    "error", "cancelled", "interrupted"):
+                continue
+            if delete_outputs == "on":
+                out_dir = OUTPUT_DIR / d.get("out_dir", "")
+                if out_dir.exists():
+                    freed_bytes += dir_size(out_dir)
+                    shutil.rmtree(out_dir, ignore_errors=True)
+                    deleted_dirs += 1
+                montage = OUTPUT_DIR / f"{d.get('out_dir','')}_montage.mp4"
+                if montage.exists():
+                    freed_bytes += montage.stat().st_size
+                    montage.unlink(missing_ok=True)
+            log_file = JOBS_DIR / f"{d['id']}.log"
+            log_file.unlink(missing_ok=True)
+            jp.unlink(missing_ok=True)
+            deleted_jobs += 1
+        except Exception:
+            continue
+    print(f"[cleanup] {deleted_jobs} jobs, {deleted_dirs} dirs, "
+          f"{freed_bytes/(1024*1024):.1f} MB liberados")
+    return RedirectResponse("/stats", status_code=303)
