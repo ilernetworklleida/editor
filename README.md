@@ -1,10 +1,31 @@
 # Editor — Toolkit de edicion de video con Claude
 
-Scripts en Python + FFmpeg para automatizar tareas de edicion de video:
-subtitulado, troceado en clips, corte de silencios y compresion para web.
+Scripts en Python + FFmpeg + **interfaz web** para automatizar la generacion
+de Reels/Shorts/TikTok desde videos largos: subtitulado, troceado en clips,
+hooks, color grading, watermarks, musica con ducking, outros brandeados.
 
 Pensado para Reels/Shorts/TikTok (9:16), YouTube largo (16:9) y videos
 corporativos para webs/clientes.
+
+## Lanzar la interfaz web (modo recomendado)
+
+```bash
+# Una vez setup (ver "Requisitos previos" abajo):
+python scripts/run_web.py
+```
+
+Abre <http://localhost:8000> en el navegador. Subes el video, configuras
+opciones (perfil, estilo, musica, watermark, outro), pulsas un boton, ves
+progreso en vivo y descargas los reels resultantes.
+
+Para acceder desde otro dispositivo en la misma WiFi:
+```bash
+python scripts/run_web.py --host 0.0.0.0 --port 8000
+```
+Y desde el movil/portatil: `http://<IP_DE_TU_PC>:8000/`
+
+Para acceder desde **cualquier sitio** (tu dominio publico): ver seccion
+"Despliegue en un dominio" mas abajo.
 
 ---
 
@@ -51,10 +72,13 @@ Editor/
 │   ├── auto_reels_pro.py      [BOTON PRO] highlights+chunks+KenBurns+hook+musica
 │   ├── auto_yt.py             [URL -> REELS] baja de YouTube + procesa pro
 │   ├── auto_batch.py          [BATCH] procesa una carpeta entera de videos
-│   └── auto_montage.py        [TEASER] junta los reels en un montaje 30-60s
+│   ├── auto_montage.py        [TEASER] junta los reels en un montaje 30-60s
+│   └── run_web.py             [WEB] lanza el servidor FastAPI
+├── app/                   <- interfaz web (FastAPI + HTML/CSS/JS plano)
 ├── music/                 <- mete aqui .mp3 para musica de fondo opcional
 ├── branding/              <- mete aqui tu logo .png (transparente) para watermark
 ├── profiles/              <- combos de flags reutilizables (viral, educativo, ...)
+├── jobs/                  <- metadata de jobs del web UI (gitignored)
 ├── requirements.txt
 └── README.md
 ```
@@ -249,6 +273,79 @@ python scripts/01_subtitular.py output/podcast/podcast_clip01.mp4
 ```
 
 ---
+
+## Despliegue en un dominio (acceso desde cualquier sitio)
+
+La pipeline (FFmpeg + Whisper + Python) es **demasiado pesada** para
+Hostinger SHARED. Necesitas que el servidor este en una maquina con CPU
+suficiente. Tres caminos:
+
+### Opcion A — Cloudflare Tunnel desde tu PC (gratis, mas rapido de montar)
+
+Tu PC sigue procesando los videos, pero un tunel publica el puerto 8000
+en internet con tu propio dominio. Sin abrir puertos en el router.
+
+1. Instala cloudflared:
+   ```powershell
+   winget install Cloudflare.cloudflared
+   ```
+2. Login: `cloudflared tunnel login` (abre el navegador, autoriza tu cuenta CF).
+3. Crea un tunel: `cloudflared tunnel create editor`
+4. En el panel de Cloudflare, anade un DNS record CNAME `editor.tu-dominio.com`
+   apuntando al ID del tunel.
+5. Ejecuta el tunel:
+   ```bash
+   cloudflared tunnel --url http://localhost:8000 run editor
+   ```
+6. Lanza el servidor: `python scripts/run_web.py`
+7. Accede desde donde sea: `https://editor.tu-dominio.com`
+
+### Opcion B — VPS dedicado (ideal para uso intensivo)
+
+VPS con >= 2 CPU + 4GB RAM. Hostinger tiene VPS plan KVM 2 (~6 EUR/mes),
+o cualquier otro proveedor (Hetzner, DigitalOcean, etc).
+
+1. Instalar en el VPS (Ubuntu/Debian):
+   ```bash
+   apt update && apt install -y python3.11-venv ffmpeg git
+   git clone https://github.com/ilernetworklleida/editor.git
+   cd editor
+   python3 -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. Lanzar como servicio systemd (crear `/etc/systemd/system/editor.service`):
+   ```ini
+   [Unit]
+   Description=Editor reels factory
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=root
+   WorkingDirectory=/root/editor
+   ExecStart=/root/editor/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+   Restart=always
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+3. `systemctl enable --now editor` para arrancarlo.
+4. Apunta tu dominio al VPS via DNS A record.
+5. Pon nginx delante con SSL (certbot) o usa Caddy (mas facil):
+   ```
+   editor.tu-dominio.com {
+       reverse_proxy localhost:8000
+   }
+   ```
+
+### Opcion C — Tailscale (acceso privado, no expuesto a internet)
+
+Solo tu y tus dispositivos pueden ver el servidor. Mas seguro si es
+herramienta personal:
+1. Instala Tailscale en tu PC y en el dispositivo desde el que quieras acceder.
+2. Lanza el servidor con `--host 0.0.0.0`.
+3. Accede en `http://<nombre-de-tu-pc>.tail<XYZ>.ts.net:8000` desde cualquier
+   dispositivo logueado en tu red Tailscale.
 
 ## Notas
 

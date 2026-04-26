@@ -25,6 +25,12 @@ music/*
 branding/*
 !branding/.gitkeep
 
+# Jobs del web UI (logs y metadata, no se commitean)
+jobs/
+
+# FastAPI / uvicorn
+*.pid
+
 # Cache modelos Whisper
 .cache/
 

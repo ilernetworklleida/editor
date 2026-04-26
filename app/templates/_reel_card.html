@@ -1,0 +1,26 @@
+<article class="reel-card">
+  <video class="reel-video" controls preload="metadata" {% if r.thumb %}poster="{{ r.thumb }}"{% endif %}>
+    <source src="{{ r.video }}" type="video/mp4">
+  </video>
+  <div class="reel-info">
+    <div class="reel-name">{{ r.name }} <span class="reel-size">{{ r.size_mb }} MB</span></div>
+    <div class="reel-actions">
+      <a class="btn-link" href="{{ r.video }}" download>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        mp4
+      </a>
+      {% if r.txt %}
+      <button type="button" class="btn-link reel-copy" data-text="{{ r.txt | e }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        copiar texto
+      </button>
+      {% endif %}
+    </div>
+    {% if r.txt %}
+    <details class="reel-text">
+      <summary>Transcripcion + hashtags</summary>
+      <pre>{{ r.txt }}</pre>
+    </details>
+    {% endif %}
+  </div>
+</article>

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.id }} · Editor{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+  Volver
+</a>
+
+<section class="job-header">
+  <div class="job-title-row">
+    <h1>Job <code class="job-id">{{ job.id }}</code></h1>
+    <span class="badge badge-{{ job.status }}" id="statusBadge">{{ job.status }}</span>
+  </div>
+  <div class="job-meta">
+    <span>Video: <code>{{ job.video }}</code></span>
+    <span>·</span>
+    <span>{{ job.n_clips }} reels</span>
+    {% if job.profile %}
+      <span>·</span>
+      <span>perfil <code>{{ job.profile }}</code></span>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+    Progreso en vivo
+  </h2>
+  <pre class="log" id="log">cargando…</pre>
+</section>
+
+<section class="card" id="reelsSection" {% if not reels %}hidden{% endif %}>
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+    Reels generados (<span id="reelCount">{{ reels|length }}</span>)
+  </h2>
+  <div class="reel-grid" id="reelGrid">
+    {% for r in reels %}
+      {% include "_reel_card.html" %}
+    {% endfor %}
+  </div>
+</section>
+
+<template id="reelCardTemplate">
+  <article class="reel-card">
+    <video class="reel-video" controls preload="metadata"></video>
+    <div class="reel-info">
+      <div class="reel-name"></div>
+      <div class="reel-actions">
+        <a class="btn-link reel-download" download>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          mp4
+        </a>
+        <button type="button" class="btn-link reel-copy">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          copiar texto
+        </button>
+      </div>
+      <details class="reel-text">
+        <summary>Transcripcion + hashtags</summary>
+        <pre></pre>
+      </details>
+    </div>
+  </article>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.JOB_ID = "{{ job.id }}";
+  window.JOB_OUT_DIR = "{{ job.out_dir }}";
+</script>
+<script src="/static/app.js"></script>
+<script src="/static/job.js"></script>
+{% endblock %}
