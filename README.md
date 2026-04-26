@@ -57,9 +57,11 @@ Editor/
 
 ### 01 — Subtitular automaticamente
 Genera un archivo `.srt` desde el audio del video usando Whisper.
+Autodetecta el idioma por defecto.
 ```bash
 python scripts/01_subtitular.py input/mi_video.mp4
-python scripts/01_subtitular.py input/mi_video.mp4 medium   # mas preciso, mas lento
+python scripts/01_subtitular.py input/mi_video.mp4 medium       # mas preciso, mas lento
+python scripts/01_subtitular.py input/mi_video.mp4 small es     # forzar idioma (es, en, ca, fr...)
 ```
 Modelos: `tiny` < `base` < `small` (default) < `medium` < `large`.
 

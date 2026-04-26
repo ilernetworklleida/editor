@@ -1,9 +1,11 @@
 """
 Subtitulado automatico de un video a formato .srt usando faster-whisper.
+Autodetecta el idioma del audio.
 
 Uso:
     python scripts/01_subtitular.py input/mi_video.mp4
     python scripts/01_subtitular.py input/mi_video.mp4 medium
+    python scripts/01_subtitular.py input/mi_video.mp4 small es   # forzar idioma
 
 Modelos disponibles (peso/precision crecientes):
     tiny, base, small (default), medium, large
@@ -27,7 +29,7 @@ def format_time(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def main(video_path: str, model_size: str = "small") -> None:
+def main(video_path: str, model_size: str = "small", language: str | None = None) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe el archivo: {video}")
@@ -40,9 +42,10 @@ def main(video_path: str, model_size: str = "small") -> None:
     print(f"[..] Cargando modelo Whisper '{model_size}' (la 1a vez descarga ~MB)")
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
-    print(f"[..] Transcribiendo {video.name}")
-    segments, info = model.transcribe(str(video), language="es", beam_size=5)
-    print(f"[..] Idioma: {info.language} (prob {info.language_probability:.2f})")
+    modo = f"forzando idioma '{language}'" if language else "autodetectando idioma"
+    print(f"[..] Transcribiendo {video.name} ({modo})")
+    segments, info = model.transcribe(str(video), language=language, beam_size=5)
+    print(f"[..] Idioma detectado: {info.language} (prob {info.language_probability:.2f})")
 
     with srt_path.open("w", encoding="utf-8") as f:
         for i, seg in enumerate(segments, 1):
@@ -60,4 +63,5 @@ if __name__ == "__main__":
         sys.exit(1)
     video_arg = sys.argv[1]
     model_arg = sys.argv[2] if len(sys.argv) > 2 else "small"
-    main(video_arg, model_arg)
+    lang_arg = sys.argv[3] if len(sys.argv) > 3 else None
+    main(video_arg, model_arg, lang_arg)
