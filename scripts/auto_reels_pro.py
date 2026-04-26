@@ -474,13 +474,24 @@ def build_audio_with_music_complex(clip_len: float, music_volume: float = 0.18,
 
 # ===== MAIN =====
 
+WATERMARK_POSITIONS = {
+    "br": "x=W-w-30:y=H-h-30",  # bottom right
+    "bl": "x=30:y=H-h-30",       # bottom left
+    "tr": "x=W-w-30:y=30",       # top right
+    "tl": "x=30:y=30",           # top left
+}
+
+
 def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          words_chunk: int, style: str = DEFAULT_STYLE,
          skip_start: float = 0.0, skip_end: float = 0.0,
          music: str | None = None, with_hook: bool = True,
          music_volume: float = 0.18, grade: str = DEFAULT_GRADE,
          outro_text: str = "", outro_duration: float = 1.5,
-         ducking: bool = False) -> None:
+         ducking: bool = False,
+         watermark: str | None = None,
+         watermark_pos: str = "br",
+         watermark_scale: float = 12.0) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -500,6 +511,19 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
             print(f"[..] Musica: {mp.name} (vol {music_volume})")
         else:
             print(f"[!!] Musica no encontrada: {mp}, render sin musica")
+
+    watermark_path: str | None = None
+    if watermark:
+        wp = Path(watermark)
+        if wp.exists():
+            watermark_path = str(wp.resolve())
+            print(f"[..] Watermark: {wp.name} pos={watermark_pos} "
+                  f"scale={watermark_scale}%")
+        else:
+            print(f"[!!] Watermark no encontrado: {wp}, render sin")
+    if watermark_pos not in WATERMARK_POSITIONS:
+        print(f"[!!] Posicion watermark invalida '{watermark_pos}', uso 'br'")
+        watermark_pos = "br"
 
     out_dir = Path("output") / f"{video.stem}_pro"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -590,25 +614,9 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
 
             vf = build_video_filter(clip_len, ass_arg, grade)
 
-            if music_path:
-                # Pipeline con musica: dos inputs, filter_complex
-                ac = build_audio_with_music_complex(clip_len, music_volume, ducking)
-                cmd = [
-                    "ffmpeg", "-y",
-                    "-ss", str(t0), "-i", str(video),
-                    "-stream_loop", "-1", "-i", music_path,
-                    "-t", str(clip_len),
-                    "-filter_complex", f"[0:v]{vf}[vout];{ac}",
-                    "-map", "[vout]", "-map", "[aout]",
-                    "-c:v", "libx264", "-preset", "slow", "-crf", "18",
-                    "-c:a", "aac", "-b:a", "192k",
-                    "-shortest",
-                    "-movflags", "+faststart",
-                    str(out_path),
-                ]
-                feats = ("KenBurns + hook + chunks + musica" +
-                         (" (ducking)" if ducking else "") + " + fades")
-            else:
+            # Pipeline simple si NO hay musica NI watermark; si hay alguno,
+            # usamos filter_complex con todos los inputs.
+            if not music_path and not watermark_path:
                 af = build_audio_filter(clip_len)
                 cmd = [
                     "ffmpeg", "-y",
@@ -622,6 +630,82 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                     str(out_path),
                 ]
                 feats = "KenBurns + hook + chunks + lanczos + color + fades"
+            else:
+                # Filter_complex: video con vf -> opcional overlay watermark
+                # -> output. Audio: con o sin musica.
+                cmd = ["ffmpeg", "-y", "-ss", str(t0), "-i", str(video)]
+                next_idx = 1
+                music_idx = wm_idx = None
+                if music_path:
+                    cmd += ["-stream_loop", "-1", "-i", music_path]
+                    music_idx = next_idx
+                    next_idx += 1
+                if watermark_path:
+                    cmd += ["-loop", "1", "-i", watermark_path]
+                    wm_idx = next_idx
+                    next_idx += 1
+                cmd += ["-t", str(clip_len)]
+
+                parts = [f"[0:v]{vf}[vbase]"]
+                cur_v = "vbase"
+                if wm_idx is not None:
+                    wm_w = max(40, int(1080 * watermark_scale / 100))
+                    pos = WATERMARK_POSITIONS[watermark_pos]
+                    parts.append(f"[{wm_idx}:v]scale={wm_w}:-1[wm]")
+                    parts.append(f"[{cur_v}][wm]overlay={pos}[vout]")
+                    cur_v = "vout"
+
+                if music_idx is not None:
+                    fade_out_st = max(0.0, clip_len - FADE)
+                    if ducking:
+                        boosted = min(1.0, music_volume * 2.5)
+                        parts.append(
+                            f"[{music_idx}:a]volume={boosted}[m_pre];"
+                            f"[0:a]asplit=2[v0][v_trig];"
+                            f"[m_pre][v_trig]sidechaincompress="
+                            f"threshold=0.04:ratio=12:attack=10:release=350[m_duck];"
+                            f"[m_duck]afade=t=in:st=0:d={FADE},"
+                            f"afade=t=out:st={fade_out_st}:d={FADE}[m];"
+                            f"[v0]afade=t=in:st=0:d={FADE},"
+                            f"afade=t=out:st={fade_out_st}:d={FADE}[v];"
+                            f"[v][m]amix=inputs=2:duration=first:"
+                            f"dropout_transition=0[aout]"
+                        )
+                    else:
+                        parts.append(
+                            f"[{music_idx}:a]volume={music_volume},"
+                            f"afade=t=in:st=0:d={FADE},"
+                            f"afade=t=out:st={fade_out_st}:d={FADE}[m];"
+                            f"[0:a]afade=t=in:st=0:d={FADE},"
+                            f"afade=t=out:st={fade_out_st}:d={FADE}[v];"
+                            f"[v][m]amix=inputs=2:duration=first:"
+                            f"dropout_transition=0[aout]"
+                        )
+                    final_a = "[aout]"
+                else:
+                    fade_out_st = max(0.0, clip_len - FADE)
+                    parts.append(
+                        f"[0:a]afade=t=in:st=0:d={FADE},"
+                        f"afade=t=out:st={fade_out_st}:d={FADE}[aout]"
+                    )
+                    final_a = "[aout]"
+
+                fc = ";".join(parts)
+                cmd += [
+                    "-filter_complex", fc,
+                    "-map", f"[{cur_v}]", "-map", final_a,
+                    "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-shortest",
+                    "-movflags", "+faststart",
+                    str(out_path),
+                ]
+                bits = ["KenBurns", "hook", "chunks", "color", "fades"]
+                if music_path:
+                    bits.append("musica" + (" (ducking)" if ducking else ""))
+                if watermark_path:
+                    bits.append("watermark")
+                feats = " + ".join(bits)
             print(f"[..] Render: {feats}")
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode != 0:
@@ -731,12 +815,16 @@ def parse_args(argv: list):
     outro_text = extract_first("--outro") or ""
     outro_duration = float(extract_first("--outro-duration") or 1.5)
     ducking = bool(extract_first("--duck", has_value=False))
+    watermark = extract_first("--watermark")
+    watermark_pos = extract_first("--watermark-pos") or "br"
+    watermark_scale = float(extract_first("--watermark-scale") or 12.0)
 
     if len(args) < 2:
         return None
     return (args[0], int(args[1]), mode, target, chunk, style,
             skip_start, skip_end, music, with_hook, music_volume,
-            grade, outro_text, outro_duration, ducking)
+            grade, outro_text, outro_duration, ducking,
+            watermark, watermark_pos, watermark_scale)
 
 
 if __name__ == "__main__":
@@ -745,8 +833,9 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od, dk) = parsed
+     gr, ot, od, dk, wm, wp, ws) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
          grade=gr, outro_text=ot, outro_duration=od,
-         ducking=dk)
+         ducking=dk, watermark=wm, watermark_pos=wp,
+         watermark_scale=ws)

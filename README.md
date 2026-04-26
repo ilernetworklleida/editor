@@ -53,6 +53,7 @@ Editor/
 │   ├── auto_batch.py          [BATCH] procesa una carpeta entera de videos
 │   └── auto_montage.py        [TEASER] junta los reels en un montaje 30-60s
 ├── music/                 <- mete aqui .mp3 para musica de fondo opcional
+├── branding/              <- mete aqui tu logo .png (transparente) para watermark
 ├── profiles/              <- combos de flags reutilizables (viral, educativo, ...)
 ├── requirements.txt
 └── README.md
@@ -182,6 +183,16 @@ python scripts/auto_reels_pro.py input/v.mp4 6 --outro "TU MARCA" --outro-durati
 Anade un overlay centrado en pantalla durante los ultimos N segundos del reel.
 `\n` se convierte en salto de linea. Estilo grande, blanco con outline negro,
 fade in/out, ligero pop-in de escala.
+
+**Watermark / logo (`--watermark`):**
+Superpone un PNG (idealmente con transparencia) en una esquina de cada reel.
+```bash
+python scripts/auto_reels_pro.py input/v.mp4 6 --watermark branding/logo.png
+python scripts/auto_reels_pro.py input/v.mp4 6 --watermark branding/logo.png --watermark-pos br --watermark-scale 12
+```
+- `--watermark-pos`: `br` (default) `bl` `tr` `tl` (esquinas).
+- `--watermark-scale`: tamano como % del ancho (12 = 12% de 1080px = 130px).
+- Mete tu logo en `branding/` (gitignored para no commitear archivos privados).
 
 **True ducking de musica (`--duck`):**
 Sidechain compressor: la musica baja automaticamente cuando hay voz, sube

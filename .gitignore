@@ -21,6 +21,10 @@ output/*
 music/*
 !music/.gitkeep
 
+# Branding (logos del usuario, archivos generados)
+branding/*
+!branding/.gitkeep
+
 # Cache modelos Whisper
 .cache/
 
