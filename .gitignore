@@ -9,6 +9,7 @@ __pycache__/
 # Entorno
 .env
 .env.*
+!.env.example
 *.log
 
 # Videos pesados (no commitear)

@@ -27,6 +27,25 @@ Y desde el movil/portatil: `http://<IP_DE_TU_PC>:8000/`
 Para acceder desde **cualquier sitio** (tu dominio publico): ver seccion
 "Despliegue en un dominio" mas abajo.
 
+### Autenticacion (recomendado si lo expones a internet)
+
+Por defecto el web UI **no tiene auth** — modo local sin password. Si vas a
+exponerlo via Cloudflare Tunnel/VPS/etc., **define credenciales** copiando
+`.env.example` a `.env` y rellenando:
+
+```bash
+cp .env.example .env
+# Edita .env y pon:
+#   EDITOR_USER=alvaro
+#   EDITOR_PASS=algo-largo-y-aleatorio
+```
+
+`run_web.py` carga el `.env` al arrancar. Con auth activa todas las rutas
+piden HTTP Basic (excepto `/api/health` para health-checks). El navegador
+muestra el dialogo de login estandar y recuerda las credenciales en sesion.
+
+`.env` esta en .gitignore — nunca se commitea.
+
 ---
 
 ## Requisitos previos (UNA vez)

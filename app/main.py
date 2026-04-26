@@ -5,10 +5,16 @@ Sirve una interfaz web completa para subir un video, configurar el pipeline
 y ver los reels resultantes. Lanza con:
 
     python scripts/run_web.py
+
+Auth: si defines EDITOR_USER y EDITOR_PASS (variables de entorno o .env),
+todas las rutas requieren HTTP Basic Auth. Sin definirlas: modo local sin auth.
 """
 from __future__ import annotations
 
+import base64
 import json
+import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -17,9 +23,10 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 
 ROOT = Path(__file__).resolve().parent.parent
 INPUT_DIR = ROOT / "input"
@@ -43,6 +50,59 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
 app.mount("/branding", StaticFiles(directory=str(BRANDING_DIR)), name="branding")
+
+
+# ===== HTTP Basic Auth (opcional, via env vars EDITOR_USER + EDITOR_PASS) =====
+
+class BasicAuthMiddleware(BaseHTTPMiddleware):
+    """Protege TODAS las rutas (incluyendo mounts de StaticFiles) con HTTP Basic.
+    Solo activo si EDITOR_USER y EDITOR_PASS estan definidas. Excluye paths
+    publicos como /api/health para health-checks externos."""
+
+    def __init__(self, app, user: str, pwd: str, exempt: set[str] | None = None):
+        super().__init__(app)
+        self.user = user
+        self.pwd = pwd
+        self.exempt = exempt or set()
+
+    async def dispatch(self, request, call_next):
+        if request.url.path in self.exempt:
+            return await call_next(request)
+        auth = request.headers.get("authorization", "")
+        if not auth.lower().startswith("basic "):
+            return self._unauthorized()
+        try:
+            decoded = base64.b64decode(auth.split(" ", 1)[1]).decode("utf-8")
+            user, _, pwd = decoded.partition(":")
+        except Exception:
+            return self._unauthorized()
+        ok_user = secrets.compare_digest(user, self.user)
+        ok_pwd = secrets.compare_digest(pwd, self.pwd)
+        if not (ok_user and ok_pwd):
+            return self._unauthorized()
+        return await call_next(request)
+
+    @staticmethod
+    def _unauthorized() -> Response:
+        return Response(
+            "Authentication required",
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="Editor"'},
+        )
+
+
+_AUTH_USER = os.environ.get("EDITOR_USER", "").strip()
+_AUTH_PASS = os.environ.get("EDITOR_PASS", "").strip()
+if _AUTH_USER and _AUTH_PASS:
+    app.add_middleware(
+        BasicAuthMiddleware,
+        user=_AUTH_USER,
+        pwd=_AUTH_PASS,
+        exempt={"/api/health"},
+    )
+    print(f"[auth] Basic Auth activa (user='{_AUTH_USER}')")
+else:
+    print("[auth] Sin auth (define EDITOR_USER y EDITOR_PASS para protegerlo)")
 
 
 # ===== Helpers =====
