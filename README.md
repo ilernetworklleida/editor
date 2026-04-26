@@ -50,7 +50,8 @@ Editor/
 │   ├── auto_reels.py          [BOTON SIMPLE] N reels verticales subtitulados
 │   ├── auto_reels_pro.py      [BOTON PRO] highlights+chunks+KenBurns+hook+musica
 │   ├── auto_yt.py             [URL -> REELS] baja de YouTube + procesa pro
-│   └── auto_batch.py          [BATCH] procesa una carpeta entera de videos
+│   ├── auto_batch.py          [BATCH] procesa una carpeta entera de videos
+│   └── auto_montage.py        [TEASER] junta los reels en un montaje 30-60s
 ├── music/                 <- mete aqui .mp3 para musica de fondo opcional
 ├── profiles/              <- combos de flags reutilizables (viral, educativo, ...)
 ├── requirements.txt
@@ -111,6 +112,17 @@ python scripts/auto_yt.py "https://youtube.com/watch?v=ID" 6 --range 60 600   # 
 python scripts/auto_yt.py "https://youtube.com/watch?v=ID" 6 --duration 30 --chunk 4
 ```
 Internamente llama a auto_reels_pro.py con todos sus features.
+
+### auto_montage.py — Teaser/montaje de los reels generados
+Junta los reels en un solo video con crossfades entre ellos. Ideal como
+"aviso" en feed o story que envia trafico a los reels individuales.
+```bash
+python scripts/auto_montage.py output/test_es_pro                  # 6s por reel + 0.4s xfade
+python scripts/auto_montage.py output/test_es_pro --per-clip 5     # 5s por reel
+python scripts/auto_montage.py output/test_es_pro --per-clip 8 --xfade 0.6
+```
+Salida: `output/<carpeta>_montage.mp4` con todos los reels concatenados con
+transiciones suaves video + audio.
 
 ### auto_batch.py — Procesa varios videos en serie
 Mismo pipeline que `auto_reels_pro` pero aplicado a multiples videos.
