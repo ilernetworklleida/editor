@@ -48,8 +48,10 @@ Editor/
 │   ├── 03_cortar_silencios.py limpia pausas largas
 │   ├── 04_comprimir_web.py    batch optimizar para web (H.264)
 │   ├── auto_reels.py          [BOTON SIMPLE] N reels verticales subtitulados
-│   ├── auto_reels_pro.py      [BOTON PRO] highlights + chunks + KenBurns + fades
-│   └── auto_yt.py             [URL -> REELS] baja de YouTube + procesa pro en 1 comando
+│   ├── auto_reels_pro.py      [BOTON PRO] highlights+chunks+KenBurns+hook+musica
+│   ├── auto_yt.py             [URL -> REELS] baja de YouTube + procesa pro
+│   └── auto_batch.py          [BATCH] procesa una carpeta entera de videos
+├── music/                 <- mete aqui .mp3 para musica de fondo opcional
 ├── requirements.txt
 └── README.md
 ```
@@ -109,6 +111,15 @@ python scripts/auto_yt.py "https://youtube.com/watch?v=ID" 6 --duration 30 --chu
 ```
 Internamente llama a auto_reels_pro.py con todos sus features.
 
+### auto_batch.py — Procesa varios videos en serie
+Mismo pipeline que `auto_reels_pro` pero aplicado a multiples videos.
+Util para cuando tienes una carpeta llena de fuentes.
+```bash
+python scripts/auto_batch.py input/ 4                               # procesa todo input/ con 4 reels c/u
+python scripts/auto_batch.py input/ 4 --style hype --skip-start 30  # mismo flag a todos
+python scripts/auto_batch.py "input/v1.mp4,input/v2.mp4" 4          # solo esos dos
+```
+
 ### auto_reels_pro.py — Boton PRO: smart highlights + estilo viral
 Como el simple pero MUCHO mejor:
 - **Smart highlights**: detecta los N momentos mas interesantes (densidad de
@@ -133,6 +144,15 @@ python scripts/auto_reels_pro.py input/video.mp4 6 --skip-start 60 --skip-end 30
 - `clean` (default): Arial Black blanco sin caps, sobrio. Ideal tutoriales/educativo.
 - `hype`: Impact amarillo en CAPS, mas grande. Estilo TikTok/viral.
 - `money`: Arial Black verde con outline blanco en CAPS. Estilo finanzas/business.
+
+**Hook + musica:**
+```bash
+python scripts/auto_reels_pro.py input/v.mp4 6 --no-hook                            # quita el gancho del inicio
+python scripts/auto_reels_pro.py input/v.mp4 6 --music music/cancion.mp3            # musica de fondo (vol 0.18)
+python scripts/auto_reels_pro.py input/v.mp4 6 --music music/cancion.mp3 --music-vol 0.10
+```
+Por defecto cada reel arranca con un overlay grande arriba (3 primeras palabras
+durante 1.2s con animacion pop-in) que captura atencion en el feed.
 Salida por cada reel:
 - `reel_NN.mp4` — el video listo para subir
 - `reel_NN.jpg` — miniatura (frame del medio) por si quieres portada custom
