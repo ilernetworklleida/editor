@@ -561,6 +561,19 @@ async def run_job(
     if not video and not url:
         raise HTTPException(400, "Tienes que especificar un video O una URL")
 
+    # Bulk: multiples URLs separadas por linea
+    urls_list = [
+        u.strip() for u in url.splitlines() if u.strip().startswith("http")
+    ]
+    if len(urls_list) > 1:
+        # Crea N jobs, redirige a /jobs
+        return _spawn_bulk_jobs(
+            urls_list, n_clips, profile, style, grade, duration, chunk,
+            music, music_vol, duck, watermark, watermark_pos, watermark_scale,
+            outro, outro_duration, skip_start, skip_end, no_hook,
+            translate_en, ai_highlights,
+        )
+
     use_yt = bool(url)
     if use_yt:
         vid = yt_video_id(url)
@@ -756,6 +769,96 @@ async def profiles_delete(name: str):
     if p.exists():
         p.unlink()
     return RedirectResponse("/profiles", status_code=303)
+
+
+def _build_pipeline_args(
+    n_clips: int, profile: str, style: str, grade: str, duration: float,
+    chunk: str, music: str, music_vol: float, duck: str,
+    watermark: str, watermark_pos: str, watermark_scale: float,
+    outro: str, outro_duration: float, skip_start: float, skip_end: float,
+    no_hook: str, translate_en: str, ai_highlights: str,
+) -> list[str]:
+    """Genera la lista de flags para auto_reels_pro a partir del form."""
+    args: list[str] = []
+    if profile:
+        args += ["--profile", profile]
+    else:
+        if style and style != "clean":
+            args += ["--style", style]
+        if grade and grade != "none":
+            args += ["--grade", grade]
+        if duration and float(duration) != 35.0:
+            args += ["--duration", str(duration)]
+        if chunk and chunk != "3":
+            args += ["--chunk", str(chunk)]
+    if music:
+        args += ["--music", str(MUSIC_DIR / music)]
+        if music_vol and float(music_vol) != 0.18:
+            args += ["--music-vol", str(music_vol)]
+    if duck == "on":
+        args += ["--duck"]
+    if watermark:
+        args += ["--watermark", str(BRANDING_DIR / watermark),
+                 "--watermark-pos", watermark_pos]
+        if float(watermark_scale) != 12.0:
+            args += ["--watermark-scale", str(watermark_scale)]
+    if outro and outro.strip():
+        args += ["--outro", outro,
+                 "--outro-duration", str(outro_duration)]
+    if float(skip_start) > 0:
+        args += ["--skip-start", str(skip_start)]
+    if float(skip_end) > 0:
+        args += ["--skip-end", str(skip_end)]
+    if no_hook == "on":
+        args += ["--no-hook"]
+    if translate_en == "on":
+        args += ["--translate-en"]
+    if ai_highlights == "on":
+        args += ["--ai-highlights"]
+    return args
+
+
+def _spawn_bulk_jobs(
+    urls: list[str], n_clips: int, profile: str, style: str, grade: str,
+    duration: float, chunk: str, music: str, music_vol: float, duck: str,
+    watermark: str, watermark_pos: str, watermark_scale: float,
+    outro: str, outro_duration: float, skip_start: float, skip_end: float,
+    no_hook: str, translate_en: str, ai_highlights: str,
+) -> RedirectResponse:
+    """Crea N jobs en cola (uno por URL) y redirige al listado."""
+    base_args = _build_pipeline_args(
+        n_clips, profile, style, grade, duration, chunk,
+        music, music_vol, duck, watermark, watermark_pos, watermark_scale,
+        outro, outro_duration, skip_start, skip_end, no_hook,
+        translate_en, ai_highlights,
+    )
+    spawned = 0
+    for u in urls:
+        vid = yt_video_id(u)
+        if not vid:
+            continue
+        job_args = [u, str(int(n_clips))] + base_args
+        job_id = uuid.uuid4().hex[:12]
+        save_job(job_id, {
+            "id": job_id,
+            "video": f"(URL bulk) {u[:60]}",
+            "url": u,
+            "use_yt": True,
+            "n_clips": int(n_clips),
+            "profile": profile or None,
+            "args": job_args,
+            "status": "queued",
+            "created": datetime.now().isoformat(),
+            "started": None,
+            "ended": None,
+            "out_dir": f"yt_{vid}_pro",
+        })
+        threading.Thread(
+            target=run_pipeline_worker, args=(job_id,), daemon=True
+        ).start()
+        spawned += 1
+    print(f"[bulk] {spawned} jobs encolados desde {len(urls)} URLs")
+    return RedirectResponse(f"/jobs?q=bulk", status_code=303)
 
 
 @app.post("/job/{job_id}/variant")

@@ -20,8 +20,29 @@
       <span>·</span>
       <span>perfil <code>{{ job.profile }}</code></span>
     {% endif %}
+    {% if job.started and job.ended %}
+      <span>·</span>
+      <span class="job-duration" id="jobDuration"></span>
+    {% endif %}
+    {% if job.variant_of %}
+      <span>·</span>
+      <span>variante de <a href="/job/{{ job.variant_of }}"><code>{{ job.variant_of }}</code></a></span>
+    {% endif %}
   </div>
 </section>
+{% if job.started and job.ended %}
+<script>
+  (() => {
+    const start = new Date("{{ job.started }}");
+    const end = new Date("{{ job.ended }}");
+    const sec = Math.round((end - start) / 1000);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    const el = document.getElementById("jobDuration");
+    if (el) el.textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
+  })();
+</script>
+{% endif %}
 
 <section class="card">
   <div class="card-title-row">

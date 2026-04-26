@@ -43,12 +43,11 @@
 
   <div class="source-pane" data-pane="url" hidden>
     <div class="field">
-      <label for="urlInput">URL de YouTube (video, short, embed)</label>
-      <input type="url" id="urlInput" form="runForm" name="url"
-             placeholder="https://www.youtube.com/watch?v=ID..."
-             pattern="https?://.+">
-      <small>El video se descarga via yt-dlp justo antes de procesarlo. Cache automatico
-        (no re-descarga si lo lanzas otra vez).</small>
+      <label for="urlInput">URLs de YouTube (una por linea para procesar varios videos en bulk)</label>
+      <textarea id="urlInput" form="runForm" name="url" rows="3"
+             placeholder="https://www.youtube.com/watch?v=ABC123&#10;https://www.youtube.com/watch?v=DEF456"></textarea>
+      <small>Cache automatico (no re-descarga si lanzas la misma URL otra vez).
+        Si pegas <strong>varias URLs</strong> (una por linea) -> N jobs en cola, redirige a /jobs.</small>
     </div>
   </div>
 

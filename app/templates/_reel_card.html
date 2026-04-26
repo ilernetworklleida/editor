@@ -17,6 +17,14 @@
       {% endif %}
     </div>
     {% if r.txt %}
+    {% set ai_match = r.txt.split('MOTIVO IA (Claude):')|last if 'MOTIVO IA' in r.txt else '' %}
+    {% if ai_match and ai_match != r.txt %}
+      {% set ai_reason = ai_match.split('\n')[0].strip() %}
+      <div class="reel-ai-reason" title="Por que la IA eligio este clip">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        {{ ai_reason }}
+      </div>
+    {% endif %}
     <details class="reel-text">
       <summary>Transcripcion + hashtags</summary>
       <pre>{{ r.txt }}</pre>

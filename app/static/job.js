@@ -137,6 +137,36 @@
     }
   }
 
+  // Browser notification cuando termina
+  let notifShown = false;
+  const originalUpdateBadge = updateBadge;
+  updateBadge = function(status) {
+    originalUpdateBadge(status);
+    if (!notifShown && (status === "done" || status === "error")) {
+      notifShown = true;
+      tryNotify(status);
+    }
+  };
+
+  function tryNotify(status) {
+    if (!("Notification" in window)) return;
+    const text = status === "done"
+      ? "Reels listos para descargar"
+      : "El job fallo - revisa el log";
+    const send = () => {
+      try {
+        new Notification(`Editor: ${status}`, {
+          body: text,
+          icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f97316'%3E%3Cpath d='M23 7l-7 5 7 5V7zM3 5h13v14H3z'/%3E%3C/svg%3E",
+        });
+      } catch (e) {}
+    };
+    if (Notification.permission === "granted") send();
+    else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((p) => p === "granted" && send());
+    }
+  }
+
   poll();
   const intervalId = setInterval(() => {
     if (stopPolling) {
