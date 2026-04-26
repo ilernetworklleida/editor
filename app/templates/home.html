@@ -217,6 +217,13 @@
           <span>Subtitulos EN traducidos (.srt extra para mercados internacionales)</span>
         </label>
       </div>
+      <div class="field field-checkbox">
+        <label for="ai_highlights" class="check-row">
+          <input type="checkbox" name="ai_highlights" id="ai_highlights">
+          <span>IA elige los mejores momentos (Claude API · ~$0.05/video)</span>
+        </label>
+        <small>Requiere <code>ANTHROPIC_API_KEY</code> en .env. Si no hay key, cae a la heuristica de densidad.</small>
+      </div>
     </div>
   </section>
 

@@ -428,6 +428,7 @@ async def run_job(
     skip_end: float = Form(0),
     no_hook: str = Form(""),
     translate_en: str = Form(""),
+    ai_highlights: str = Form(""),
 ):
     url = url.strip()
     if not video and not url:
@@ -481,6 +482,8 @@ async def run_job(
         args += ["--no-hook"]
     if translate_en == "on":
         args += ["--translate-en"]
+    if ai_highlights == "on":
+        args += ["--ai-highlights"]
 
     job_id = uuid.uuid4().hex[:12]
     job_data = {

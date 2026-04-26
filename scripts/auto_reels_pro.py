@@ -22,6 +22,7 @@ Uso:
     python scripts/auto_reels_pro.py input/video.mp4 6 --skip-start 60 --skip-end 30
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -202,6 +203,126 @@ def find_highlights(all_segs: list, target_dur: float, n: int) -> list[dict]:
             break
     selected.sort(key=lambda x: x["start"])
     return selected
+
+
+def find_highlights_ai(all_segs: list, target_dur: float, n: int,
+                       language: str = "es") -> list[dict] | None:
+    """
+    Pide a Claude que seleccione los N momentos mas virales del transcript.
+    Devuelve None si:
+      - falta ANTHROPIC_API_KEY
+      - falta el SDK anthropic
+      - la API falla o devuelve algo invalido
+    El caller hace fallback a la heuristica.
+
+    Usa adaptive thinking, prompt caching (transcript = bloque cacheable
+    por video) y structured outputs (Pydantic) para garantizar JSON valido.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key or not all_segs:
+        return None
+    try:
+        import anthropic
+        from pydantic import BaseModel
+    except ImportError:
+        print("[!!] anthropic/pydantic no instalado, fallback a heuristica")
+        return None
+
+    transcript_lines = [
+        f"[{s:.1f}-{e:.1f}] {t.strip()}" for s, e, t in all_segs
+    ]
+    transcript = "\n".join(transcript_lines)
+
+    system_prompt = (
+        "Eres un editor profesional de video viral para TikTok/Reels/Shorts. "
+        "Recibes un transcript con timestamps y eliges los N momentos MAS "
+        "ENGANCHANTES para convertir en clips verticales cortos.\n\n"
+        "Que hace un clip viral:\n"
+        "- Hook fuerte en los primeros 3 segundos (preguntas, datos, "
+        "afirmaciones controversiales, cifras, sorpresas)\n"
+        "- Auto-contenido: se entiende sin contexto previo ni posterior\n"
+        "- Emocional, inspirador o con insight claro\n"
+        "- Conclusion / punchline reconocible\n"
+        "- Quotable: que provoque ganas de compartir o capturar pantalla\n"
+        "- EVITA intros, outros, transiciones entre temas, charla relleno\n\n"
+        "Reglas estrictas para los timestamps:\n"
+        "- start = inicio EXACTO de un segmento del transcript\n"
+        "- end = fin EXACTO de un segmento del transcript\n"
+        "- duracion entre 60% y 130% de la duracion objetivo\n"
+        "- los clips NO se solapan entre si\n"
+        "- ordena por start ascendente"
+    )
+
+    user_msg = (
+        f"Idioma del video: {language}\n"
+        f"Duracion objetivo por clip: {target_dur:.0f} segundos\n"
+        f"Numero de clips a elegir: {n}\n\n"
+        f"Transcript (timestamps en segundos):\n\n{transcript}\n\n"
+        f"Elige los {n} MEJORES clips. Razona brevemente cada eleccion."
+    )
+
+    class Clip(BaseModel):
+        start: float
+        end: float
+        reason: str
+
+    class Highlights(BaseModel):
+        clips: list[Clip]
+
+    model_id = os.environ.get("HIGHLIGHTS_MODEL", "claude-opus-4-7").strip()
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        # Top-level cache_control auto-cachea el ultimo bloque cacheable.
+        # En este caso cachea system+transcript juntos -> reruns para el
+        # mismo video con distinto N van a coste ~10x menor.
+        response = client.messages.parse(
+            model=model_id,
+            max_tokens=4096,
+            thinking={"type": "adaptive"},
+            cache_control={"type": "ephemeral"},
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}],
+            output_format=Highlights,
+        )
+    except Exception as e:
+        print(f"[!!] Claude API fallo: {e}; fallback a heuristica")
+        return None
+
+    parsed = response.parsed_output
+    if not parsed or not parsed.clips:
+        return None
+
+    # Logging util
+    usage = response.usage
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    in_tok = getattr(usage, "input_tokens", 0) or 0
+    out_tok = getattr(usage, "output_tokens", 0) or 0
+    print(f"[..] Claude {model_id}: {len(parsed.clips)} clips elegidos")
+    print(f"     tokens: in={in_tok} out={out_tok} "
+          f"cache_write={cache_write} cache_read={cache_read}")
+
+    # Snap timestamps a inicios/finales de segmento reales (defensivo)
+    seg_starts = sorted({s for s, _, _ in all_segs})
+    seg_ends = sorted({e for _, e, _ in all_segs})
+    out: list[dict] = []
+    for c in parsed.clips:
+        s = min(seg_starts, key=lambda x: abs(x - c.start))
+        e = min(seg_ends, key=lambda x: abs(x - c.end))
+        if e - s < 5.0:  # demasiado corto, skip
+            continue
+        # Cuenta palabras dentro del rango
+        words = sum(
+            len(t.split()) for ss, ee, t in all_segs
+            if ss >= s - 0.5 and ee <= e + 0.5
+        )
+        out.append({
+            "start": s, "end": e, "score": 0.0,
+            "words": words, "reason": c.reason,
+        })
+    out.sort(key=lambda x: x["start"])
+    return out if out else None
 
 
 def fill_gaps_with_segments(existing: list[dict], all_segs: list,
@@ -520,7 +641,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          watermark: str | None = None,
          watermark_pos: str = "br",
          watermark_scale: float = 12.0,
-         translate_en: bool = False) -> None:
+         translate_en: bool = False,
+         ai_highlights: bool = False) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -607,8 +729,21 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
         clips = equal_cuts(selection_segs, usable_start, usable_end, n_clips)
         print(f"[..] Modo equal: {n_clips} cortes alineados a fin de frase")
     else:
-        clips = find_highlights(selection_segs, target_dur, n_clips)
-        print(f"[..] Modo smart: {len(clips)} highlights detectados")
+        clips = []
+        if ai_highlights:
+            print(f"[..] AI highlights (Claude): pidiendo seleccion...")
+            ai_result = find_highlights_ai(
+                selection_segs, target_dur, n_clips, info.language
+            )
+            if ai_result:
+                clips = ai_result
+                print(f"[..] Modo AI: {len(clips)} highlights elegidos por Claude")
+            else:
+                print(f"[!!] AI fallback (sin API key o fallo); "
+                      f"uso heuristica de densidad")
+        if not clips:
+            clips = find_highlights(selection_segs, target_dur, n_clips)
+            print(f"[..] Modo smart: {len(clips)} highlights detectados")
         if len(clips) < n_clips:
             extra_n = n_clips - len(clips)
             print(f"[..] Faltan {extra_n}, los relleno con clips de los huecos")
@@ -860,13 +995,15 @@ def parse_args(argv: list):
     watermark_pos = extract_first("--watermark-pos") or "br"
     watermark_scale = float(extract_first("--watermark-scale") or 12.0)
     translate_en = bool(extract_first("--translate-en", has_value=False))
+    ai_highlights = bool(extract_first("--ai-highlights", has_value=False))
 
     if len(args) < 2:
         return None
     return (args[0], int(args[1]), mode, target, chunk, style,
             skip_start, skip_end, music, with_hook, music_volume,
             grade, outro_text, outro_duration, ducking,
-            watermark, watermark_pos, watermark_scale, translate_en)
+            watermark, watermark_pos, watermark_scale, translate_en,
+            ai_highlights)
 
 
 if __name__ == "__main__":
@@ -875,9 +1012,10 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od, dk, wm, wp, ws, te) = parsed
+     gr, ot, od, dk, wm, wp, ws, te, ai) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
          grade=gr, outro_text=ot, outro_duration=od,
          ducking=dk, watermark=wm, watermark_pos=wp,
-         watermark_scale=ws, translate_en=te)
+         watermark_scale=ws, translate_en=te,
+         ai_highlights=ai)
