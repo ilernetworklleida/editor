@@ -785,6 +785,54 @@ async def make_montage(
     return RedirectResponse(f"/job/{job_id}", status_code=303)
 
 
+def parse_progress(log: str, total_reels: int, status: str) -> dict:
+    """Extrae progreso estructurado del log de auto_reels_pro."""
+    if status == "done":
+        return {"stage": "done", "label": "Completado",
+                "percent": 100, "current": total_reels, "total": total_reels}
+    if status in ("error", "cancelled", "interrupted"):
+        return {"stage": status, "label": status,
+                "percent": 0, "current": 0, "total": total_reels}
+
+    completed_reels = [
+        int(m.group(1)) for m in re.finditer(r"\[OK\] reel_(\d+)\.mp4", log)
+    ]
+    completed = max(completed_reels) if completed_reels else 0
+
+    reel_markers = re.findall(r"=== REEL (\d+)/(\d+)", log)
+    if reel_markers:
+        cur, tot = int(reel_markers[-1][0]), int(reel_markers[-1][1])
+        if completed >= cur:
+            base = 40 + int((completed / tot) * 55)
+            return {"stage": "rendering",
+                    "label": f"Renderizando ({completed}/{tot})",
+                    "percent": min(95, base),
+                    "current": completed, "total": tot}
+        base = 40 + int(((cur - 1) / tot) * 55) + 5
+        return {"stage": "rendering",
+                "label": f"Renderizando reel {cur}/{tot}",
+                "percent": min(95, base),
+                "current": cur, "total": tot}
+
+    if "Modo AI: " in log or "Modo smart:" in log or "Modo equal:" in log:
+        return {"stage": "selecting", "label": "Eligiendo highlights",
+                "percent": 38, "current": 0, "total": total_reels}
+    if "Generando transcripcion EN" in log:
+        return {"stage": "translating", "label": "Generando subs EN",
+                "percent": 35, "current": 0, "total": total_reels}
+    if "Transcribiendo TODO" in log or "Transcribiendo" in log:
+        return {"stage": "transcribing", "label": "Transcribiendo audio",
+                "percent": 22, "current": 0, "total": total_reels}
+    if "Cargando Whisper" in log:
+        return {"stage": "loading", "label": "Cargando modelo Whisper",
+                "percent": 10, "current": 0, "total": total_reels}
+    if "Bajando con yt-dlp" in log:
+        return {"stage": "downloading", "label": "Descargando video",
+                "percent": 5, "current": 0, "total": total_reels}
+    return {"stage": "starting", "label": "Arrancando...",
+            "percent": 2, "current": 0, "total": total_reels}
+
+
 @app.get("/api/job/{job_id}")
 async def api_job(job_id: str):
     job = load_job(job_id)
@@ -793,12 +841,14 @@ async def api_job(job_id: str):
     log_path = JOBS_DIR / f"{job_id}.log"
     log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
     reels = find_reels(job.get("out_dir", "")) if job.get("status") == "done" else []
+    progress = parse_progress(log, int(job.get("n_clips", 1)), job["status"])
     return JSONResponse({
         "id": job["id"],
         "status": job["status"],
         "log": log[-4000:],
         "ended": job.get("ended"),
         "reels": reels,
+        "progress": progress,
     })
 
 

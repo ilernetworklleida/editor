@@ -24,6 +24,19 @@
     }
   }
 
+  function updateProgress(p) {
+    if (!p) return;
+    const bar = document.getElementById("progressBar");
+    const label = document.getElementById("progressLabel");
+    const pct = document.getElementById("progressPercent");
+    if (bar) {
+      bar.style.width = p.percent + "%";
+      bar.dataset.stage = p.stage;
+    }
+    if (label) label.textContent = p.label || p.stage;
+    if (pct) pct.textContent = p.percent + "%";
+  }
+
   // Wire cancel button
   const cancelBtn = document.getElementById("cancelBtn");
   if (cancelBtn) {
@@ -113,6 +126,7 @@
         }
       }
       updateBadge(data.status);
+      updateProgress(data.progress);
       if (data.reels && data.reels.length) renderReels(data.reels);
 
       if (data.status === "done" || data.status === "error") {
