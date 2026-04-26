@@ -153,6 +153,22 @@ python scripts/auto_reels_pro.py input/v.mp4 6 --music music/cancion.mp3 --music
 ```
 Por defecto cada reel arranca con un overlay grande arriba (3 primeras palabras
 durante 1.2s con animacion pop-in) que captura atencion en el feed.
+
+**Color grading (`--grade`):**
+- `none` (default): leve color pop (sat +8%, contraste +4%).
+- `warm`: amarillento/calido. Vlogs, lifestyle.
+- `cold`: azulado/frio. Tech, corporate.
+- `cinematic`: desaturado + mas contraste. Look pelicula.
+- `vivid`: saturacion alta. TikTok energico.
+
+**Outro brandeado (`--outro`):**
+```bash
+python scripts/auto_reels_pro.py input/v.mp4 6 --outro "@tu_canal\nSigueme para mas"
+python scripts/auto_reels_pro.py input/v.mp4 6 --outro "TU MARCA" --outro-duration 2.5
+```
+Anade un overlay centrado en pantalla durante los ultimos N segundos del reel.
+`\n` se convierte en salto de linea. Estilo grande, blanco con outline negro,
+fade in/out, ligero pop-in de escala.
 Salida por cada reel:
 - `reel_NN.mp4` — el video listo para subir
 - `reel_NN.jpg` — miniatura (frame del medio) por si quieres portada custom

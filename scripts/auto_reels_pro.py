@@ -87,6 +87,17 @@ STYLES: dict[str, tuple[str, bool]] = {
 }
 DEFAULT_STYLE = "clean"
 
+# Presets de color grading. Cada uno es un nodo eq (+ opcional curves).
+# Aplica DESPUES del zoompan, ANTES de quemar subs.
+GRADE_PRESETS: dict[str, str] = {
+    "none":      "eq=saturation=1.08:contrast=1.04",
+    "warm":      "eq=gamma_r=1.07:gamma_b=0.95:saturation=1.10:contrast=1.05",
+    "cold":      "eq=gamma_r=0.95:gamma_b=1.08:saturation=1.08:contrast=1.05",
+    "cinematic": "eq=saturation=0.90:contrast=1.10:gamma=0.96,curves=preset=increase_contrast",
+    "vivid":     "eq=saturation=1.30:contrast=1.10:gamma=0.97",
+}
+DEFAULT_GRADE = "none"
+
 # Stopwords minimos en castellano (para hashtags)
 SPANISH_STOPWORDS = set((
     "el la los las un una unos unas y o pero que de del en al a por para con sin "
@@ -286,10 +297,13 @@ def get_words_for_clip(all_words: list, t0: float, t1: float) -> list[dict]:
 
 
 def write_chunk_ass(words: list, ass_path: Path, words_per_chunk: int = 3,
-                    style: str = DEFAULT_STYLE, with_hook: bool = True) -> None:
+                    style: str = DEFAULT_STYLE, with_hook: bool = True,
+                    outro_text: str = "", outro_duration: float = 1.5,
+                    clip_len: float = 0.0) -> None:
     """Escribe ASS con chunks de N palabras animados (pop-in scale).
-    Si with_hook=True, anade un overlay grande arriba con las primeras
-    3 palabras durante ~1.2s (efecto gancho viral)."""
+    - with_hook=True: overlay grande arriba con primeras 3 palabras (1.2s).
+    - outro_text!='': overlay brandeado en los ultimos outro_duration segundos.
+      Si outro_text contiene '\\n' se convierte en salto de linea ASS."""
     header, force_caps = STYLES.get(style, STYLES[DEFAULT_STYLE])
     if not words:
         ass_path.write_text(header, encoding="utf-8")
@@ -349,6 +363,27 @@ def write_chunk_ass(words: list, ass_path: Path, words_per_chunk: int = 3,
         )
         i += words_per_chunk
 
+    # ===== OUTRO CARD (ultimos N segundos, branded) =====
+    if outro_text and clip_len > outro_duration:
+        outro_start = clip_len - outro_duration
+        # Convierte saltos de linea de usuario (\n) a sintaxis ASS (\N)
+        ass_text = outro_text.replace("\\n", r"\N").replace("\n", r"\N")
+        # Sanea caracteres que rompen el .ass
+        for ch in ["{", "}"]:
+            ass_text = ass_text.replace(ch, "")
+        # Estilo outro: centrado en pantalla, blanco con caja semi-transparente.
+        # \an5 = centro absoluto. \fad fade in/out. Pop-in scale.
+        outro_fx = (
+            r"{\fnArial Black\fs78\an5\pos(540,960)"
+            r"\1c&H00FFFFFF&\3c&H00000000&\bord6\shad3"
+            r"\fad(250,300)\fscx105\fscy105"
+            r"\t(0,300,\fscx100\fscy100)}"
+        ) + ass_text
+        lines.append(
+            f"Dialogue: 2,{fmt_ass_time(outro_start)},{fmt_ass_time(clip_len)},"
+            f"Reels,,0,0,0,,{outro_fx}"
+        )
+
     ass_path.write_text(header + "\n".join(lines), encoding="utf-8")
 
 
@@ -377,19 +412,21 @@ def generate_hashtags(text: str, language: str = "es", max_n: int = 8) -> list[s
 
 # ===== KEN BURNS + FADES + ENCODING (ITER A) =====
 
-def build_video_filter(clip_len: float, ass_arg: str) -> str:
+def build_video_filter(clip_len: float, ass_arg: str,
+                       grade: str = DEFAULT_GRADE) -> str:
     fade_out_st = max(0.0, clip_len - FADE)
     total_frames = max(1, int(clip_len * FPS))
     zoom_max = 1 + BURNS_ZOOM
     # zoom progresivo 1.0 -> 1+BURNS_ZOOM repartido en total_frames
     zoom_expr = f"min(1+{BURNS_ZOOM}*on/{total_frames}\\,{zoom_max})"
+    grade_filter = GRADE_PRESETS.get(grade, GRADE_PRESETS[DEFAULT_GRADE])
     return (
         f"fps={FPS},"
         f"crop=ih*9/16:ih,"
         f"scale=1080:1920:flags=lanczos,"
         f"zoompan=z='{zoom_expr}':d=1:s=1080x1920:fps={FPS}"
         f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)',"
-        f"eq=saturation=1.08:contrast=1.04,"
+        f"{grade_filter},"
         f"ass='{ass_arg}',"
         f"fade=t=in:st=0:d={FADE},"
         f"fade=t=out:st={fade_out_st}:d={FADE}"
@@ -424,13 +461,17 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          words_chunk: int, style: str = DEFAULT_STYLE,
          skip_start: float = 0.0, skip_end: float = 0.0,
          music: str | None = None, with_hook: bool = True,
-         music_volume: float = 0.18) -> None:
+         music_volume: float = 0.18, grade: str = DEFAULT_GRADE,
+         outro_text: str = "", outro_duration: float = 1.5) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
         sys.exit(1)
     if style not in STYLES:
         print(f"[ERROR] Estilo invalido '{style}'. Validos: {list(STYLES)}")
+        sys.exit(1)
+    if grade not in GRADE_PRESETS:
+        print(f"[ERROR] Grade invalido '{grade}'. Validos: {list(GRADE_PRESETS)}")
         sys.exit(1)
 
     music_path: str | None = None
@@ -520,12 +561,16 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                 continue
 
             ass_path = work_dir / f"reel_{clip_id}.ass"
-            write_chunk_ass(clip_words, ass_path, words_chunk, style, with_hook)
+            write_chunk_ass(
+                clip_words, ass_path, words_chunk, style, with_hook,
+                outro_text=outro_text, outro_duration=outro_duration,
+                clip_len=clip_len,
+            )
 
             out_path = out_dir / f"reel_{clip_id:02d}.mp4"
             ass_arg = ffmpeg_path_for_filter(ass_path)
 
-            vf = build_video_filter(clip_len, ass_arg)
+            vf = build_video_filter(clip_len, ass_arg, grade)
 
             if music_path:
                 # Pipeline con musica: dos inputs, filter_complex
@@ -647,10 +692,26 @@ def parse_args(argv: list):
     if "--no-hook" in args:
         with_hook = False
         args.remove("--no-hook")
+    grade = DEFAULT_GRADE
+    if "--grade" in args:
+        idx = args.index("--grade")
+        grade = args[idx + 1]
+        del args[idx:idx + 2]
+    outro_text = ""
+    if "--outro" in args:
+        idx = args.index("--outro")
+        outro_text = args[idx + 1]
+        del args[idx:idx + 2]
+    outro_duration = 1.5
+    if "--outro-duration" in args:
+        idx = args.index("--outro-duration")
+        outro_duration = float(args[idx + 1])
+        del args[idx:idx + 2]
     if len(args) < 2:
         return None
     return (args[0], int(args[1]), mode, target, chunk, style,
-            skip_start, skip_end, music, with_hook, music_volume)
+            skip_start, skip_end, music, with_hook, music_volume,
+            grade, outro_text, outro_duration)
 
 
 if __name__ == "__main__":
@@ -658,6 +719,8 @@ if __name__ == "__main__":
     if not parsed:
         print(__doc__)
         sys.exit(1)
-    (vp, n, mode, td, ch, st, ss, se, mu, hk, mv) = parsed
+    (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
+     gr, ot, od) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
-         music=mu, with_hook=hk, music_volume=mv)
+         music=mu, with_hook=hk, music_volume=mv,
+         grade=gr, outro_text=ot, outro_duration=od)
