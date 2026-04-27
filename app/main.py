@@ -435,12 +435,19 @@ def fire_webhook(job: dict) -> None:
 
 def collect_stats() -> dict:
     """Estadisticas globales de uso del proyecto."""
+    from collections import defaultdict
+    from datetime import timedelta
+
     counts = {"queued": 0, "running": 0, "done": 0, "error": 0,
               "cancelled": 0, "interrupted": 0}
     total_jobs = 0
     total_cost = 0.0
     total_in = total_out = total_cache_w = total_cache_r = 0
     api_jobs = 0
+    # Time series: ultimos 30 dias
+    by_day_count: dict[str, int] = defaultdict(int)
+    by_day_cost: dict[str, float] = defaultdict(float)
+    cutoff = datetime.now() - timedelta(days=30)
     if JOBS_DIR.exists():
         for p in JOBS_DIR.glob("*.json"):
             try:
@@ -456,6 +463,16 @@ def collect_stats() -> dict:
                     total_out += int(u.get("output_tokens", 0) or 0)
                     total_cache_w += int(u.get("cache_write", 0) or 0)
                     total_cache_r += int(u.get("cache_read", 0) or 0)
+                # Time series
+                try:
+                    created = datetime.fromisoformat(d.get("created", ""))
+                except Exception:
+                    created = None
+                if created and created >= cutoff:
+                    day = created.strftime("%Y-%m-%d")
+                    by_day_count[day] += 1
+                    if u and u.get("cost_usd"):
+                        by_day_cost[day] += float(u["cost_usd"])
             except Exception:
                 continue
 
@@ -495,7 +512,21 @@ def collect_stats() -> dict:
             "cache_write": total_cache_w,
             "cache_read": total_cache_r,
         },
+        "timeseries": _build_timeseries(by_day_count, by_day_cost),
     }
+
+
+def _build_timeseries(by_day_count: dict, by_day_cost: dict) -> dict:
+    """Genera arrays alineados de 31 dias (hoy + 30 anteriores)."""
+    from datetime import timedelta
+    now = datetime.now()
+    days, counts, costs = [], [], []
+    for i in range(30, -1, -1):
+        d = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        days.append(d)
+        counts.append(by_day_count.get(d, 0))
+        costs.append(round(by_day_cost.get(d, 0), 4))
+    return {"days": days, "counts": counts, "costs": costs}
 
 
 # ===== Pipeline runner =====

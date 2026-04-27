@@ -4,8 +4,19 @@
 {% block content %}
 <section class="hero" style="margin-bottom: var(--space-5);">
   <h1>Estadisticas</h1>
-  <p class="hero-sub">Uso de disco y estado de jobs.</p>
+  <p class="hero-sub">Actividad de los ultimos 30 dias + estado actual.</p>
 </section>
+
+<div class="charts-grid">
+  <div class="card">
+    <h3 class="chart-title">Jobs por dia</h3>
+    <canvas id="jobsChart" height="120"></canvas>
+  </div>
+  <div class="card">
+    <h3 class="chart-title">Coste IA por dia (USD)</h3>
+    <canvas id="costChart" height="120"></canvas>
+  </div>
+</div>
 
 <section class="card api-status-card">
   <h2 class="card-title">
