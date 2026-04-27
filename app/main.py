@@ -105,11 +105,42 @@ else:
 
 
 def yt_video_id(url: str) -> str | None:
-    """Extrae el ID de una URL de YouTube. None si no es URL valida."""
+    """Extrae un ID estable de cualquier URL soportada por yt-dlp.
+    Para YouTube usa el v=ID. Para otras (TikTok/IG/Twitter/Twitch...)
+    usa un hash corto del URL."""
     m = re.search(
         r"(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{6,15})", url
     )
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    if not url.lower().startswith(("http://", "https://")):
+        return None
+    import hashlib
+    return "u" + hashlib.sha1(url.encode("utf-8")).hexdigest()[:11]
+
+
+def check_anthropic_key() -> dict:
+    """Devuelve estado del API key de Claude (configurada / valida / error)."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        return {"configured": False, "valid": None, "model": None}
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=key, timeout=8.0)
+        model_id = os.environ.get("HIGHLIGHTS_MODEL", "claude-opus-4-7").strip()
+        m = client.models.retrieve(model_id)
+        return {
+            "configured": True, "valid": True,
+            "model": model_id,
+            "model_display": getattr(m, "display_name", model_id),
+        }
+    except Exception as e:
+        msg = str(e)
+        return {
+            "configured": True, "valid": False,
+            "model": None,
+            "error": msg[:200],
+        }
 
 
 # ===== Helpers =====
@@ -280,6 +311,9 @@ def dir_size(path: Path) -> int:
     return total
 
 
+DISK_WARN_GB = 10.0
+
+
 def collect_stats() -> dict:
     """Estadisticas globales de uso del proyecto."""
     counts = {"queued": 0, "running": 0, "done": 0, "error": 0,
@@ -423,6 +457,8 @@ async def logout(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     recent, _ = list_jobs(limit=8)
+    stats = collect_stats()
+    disk_warn = stats["disk"]["total_gb"] > DISK_WARN_GB
     return templates.TemplateResponse(request, "home.html", {
         "videos": list_videos(),
         "profiles": list_profiles(),
@@ -430,6 +466,9 @@ async def home(request: Request):
         "watermarks": _list_dir(BRANDING_DIR, IMG_EXTS),
         "recent_jobs": recent,
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
+        "disk_warn": disk_warn,
+        "disk_total_gb": stats["disk"]["total_gb"],
+        "disk_warn_threshold": DISK_WARN_GB,
     })
 
 
@@ -556,6 +595,8 @@ async def run_job(
     no_hook: str = Form(""),
     translate_en: str = Form(""),
     ai_highlights: str = Form(""),
+    instructions: str = Form(""),
+    no_normalize: str = Form(""),
 ):
     url = url.strip()
     if not video and not url:
@@ -571,7 +612,7 @@ async def run_job(
             urls_list, n_clips, profile, style, grade, duration, chunk,
             music, music_vol, duck, watermark, watermark_pos, watermark_scale,
             outro, outro_duration, skip_start, skip_end, no_hook,
-            translate_en, ai_highlights,
+            translate_en, ai_highlights, instructions, no_normalize,
         )
 
     use_yt = bool(url)
@@ -624,6 +665,10 @@ async def run_job(
         args += ["--translate-en"]
     if ai_highlights == "on":
         args += ["--ai-highlights"]
+    if instructions and instructions.strip():
+        args += ["--instructions", instructions.strip()]
+    if no_normalize == "on":
+        args += ["--no-normalize"]
 
     job_id = uuid.uuid4().hex[:12]
     job_data = {
@@ -777,6 +822,7 @@ def _build_pipeline_args(
     watermark: str, watermark_pos: str, watermark_scale: float,
     outro: str, outro_duration: float, skip_start: float, skip_end: float,
     no_hook: str, translate_en: str, ai_highlights: str,
+    instructions: str = "", no_normalize: str = "",
 ) -> list[str]:
     """Genera la lista de flags para auto_reels_pro a partir del form."""
     args: list[str] = []
@@ -815,6 +861,10 @@ def _build_pipeline_args(
         args += ["--translate-en"]
     if ai_highlights == "on":
         args += ["--ai-highlights"]
+    if instructions and instructions.strip():
+        args += ["--instructions", instructions.strip()]
+    if no_normalize == "on":
+        args += ["--no-normalize"]
     return args
 
 
@@ -824,13 +874,14 @@ def _spawn_bulk_jobs(
     watermark: str, watermark_pos: str, watermark_scale: float,
     outro: str, outro_duration: float, skip_start: float, skip_end: float,
     no_hook: str, translate_en: str, ai_highlights: str,
+    instructions: str = "", no_normalize: str = "",
 ) -> RedirectResponse:
     """Crea N jobs en cola (uno por URL) y redirige al listado."""
     base_args = _build_pipeline_args(
         n_clips, profile, style, grade, duration, chunk,
         music, music_vol, duck, watermark, watermark_pos, watermark_scale,
         outro, outro_duration, skip_start, skip_end, no_hook,
-        translate_en, ai_highlights,
+        translate_en, ai_highlights, instructions, no_normalize,
     )
     spawned = 0
     for u in urls:
@@ -859,6 +910,34 @@ def _spawn_bulk_jobs(
         spawned += 1
     print(f"[bulk] {spawned} jobs encolados desde {len(urls)} URLs")
     return RedirectResponse(f"/jobs?q=bulk", status_code=303)
+
+
+@app.post("/job/{job_id}/rerun")
+async def rerun_job(job_id: str):
+    """Lanza un job nuevo con exactamente los mismos args que el anterior."""
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job no existe")
+    new_job_id = uuid.uuid4().hex[:12]
+    save_job(new_job_id, {
+        "id": new_job_id,
+        "video": f"{job['video']} (re-run)",
+        "url": job.get("url"),
+        "use_yt": job.get("use_yt", False),
+        "n_clips": job["n_clips"],
+        "profile": job.get("profile"),
+        "args": list(job["args"]),
+        "status": "queued",
+        "created": datetime.now().isoformat(),
+        "started": None,
+        "ended": None,
+        "out_dir": job["out_dir"],
+        "rerun_of": job_id,
+    })
+    threading.Thread(
+        target=run_pipeline_worker, args=(new_job_id,), daemon=True
+    ).start()
+    return RedirectResponse(f"/job/{new_job_id}", status_code=303)
 
 
 @app.post("/job/{job_id}/variant")
@@ -1027,6 +1106,7 @@ async def api_stats():
 async def stats_page(request: Request):
     return templates.TemplateResponse(request, "stats.html", {
         "stats": collect_stats(),
+        "anthropic": check_anthropic_key(),
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
     })
 
