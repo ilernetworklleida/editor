@@ -134,8 +134,51 @@
     const text = btn.dataset.text || "";
     navigator.clipboard.writeText(text).then(() => {
       const originalHTML = btn.innerHTML;
-      btn.innerHTML = "✓ copiado";
+      btn.innerHTML = "&check; copiado";
       setTimeout(() => { btn.innerHTML = originalHTML; }, 1400);
     });
   });
+
+  // ===== Keyboard shortcuts =====
+  document.addEventListener("keydown", (e) => {
+    // Ignore if typing in input/textarea
+    const target = e.target;
+    const isTyping = ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
+      || target.isContentEditable;
+
+    // '/' focuses search field on jobs page
+    if (e.key === "/" && !isTyping) {
+      const searchInput = document.querySelector('input[name="q"]');
+      if (searchInput) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+    }
+
+    // 'g h' navigates to home (vim-like)
+    if (e.key === "g" && !isTyping) {
+      window._gPressed = setTimeout(() => { window._gPressed = null; }, 600);
+    } else if (window._gPressed && !isTyping) {
+      const map = { h: "/", j: "/jobs", s: "/schedules",
+                    p: "/profiles", t: "/tokens", a: "/stats" };
+      if (map[e.key]) {
+        clearTimeout(window._gPressed);
+        window._gPressed = null;
+        window.location.href = map[e.key];
+      }
+    }
+  });
+
+  // ===== Auto-detect URL on paste in URL input =====
+  const urlInput = document.getElementById("urlInput");
+  if (urlInput) {
+    urlInput.addEventListener("paste", () => {
+      // Switch to URL tab if user pastes
+      const urlTab = document.querySelector('.source-tab[data-tab="url"]');
+      if (urlTab && !urlTab.classList.contains("is-active")) {
+        urlTab.click();
+      }
+    });
+  }
 })();

@@ -32,15 +32,26 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 3. Configura credenciales y API key
-cp .env.example .env
-# Edita .env con tu ADMIN_PASS y opcionalmente ANTHROPIC_API_KEY
+# 3. Wizard interactivo (crea .env, verifica deps, valida API key)
+python scripts/setup.py
 
 # 4. Lanza la web
 python scripts/run_web.py
 ```
 
 Abre <http://localhost:8000>. Login con `info@ilernetworklleida.com` + tu password.
+
+### Atajos de teclado
+
+| Tecla | Accion |
+| --- | --- |
+| `/` | Focus en el buscador (en /jobs) |
+| `g` luego `h` | Ir a Home |
+| `g` luego `j` | Ir a Jobs |
+| `g` luego `s` | Ir a Schedules |
+| `g` luego `p` | Ir a Perfiles |
+| `g` luego `t` | Ir a API tokens |
+| `g` luego `a` | Ir a Stats |
 
 ---
 
