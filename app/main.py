@@ -647,6 +647,150 @@ async def jobs_page(
     })
 
 
+_PRO_PKG_README = """REEL/LAB - Pro editor handoff package
+========================================
+
+Este paquete contiene los reels en formato BRUTO + subtitulos sueltos
+para que los importes en CapCut, DaVinci Resolve, Adobe Premiere, Final
+Cut Pro o cualquier editor profesional / movil donde quieras pulir a mano.
+
+ESTRUCTURA:
+  reel_NN/
+    reel_NN_raw.mp4      Video LIMPIO recortado a 9:16 1080x1920.
+                          Sin subs, sin musica, sin watermark, sin
+                          color grading, sin Ken Burns. Lienzo en blanco.
+    reel_NN_burned.mp4   Como salio de REEL/LAB (con todo). Referencia.
+    reel_NN.srt          Subtitulos sueltos para importar al editor.
+    reel_NN.txt          Transcripcion + hashtags + copy IA.
+    reel_NN.copy.json    Copy IA en formato estructurado (titulo, desc...).
+    reel_NN.jpg          Miniatura.
+
+USO EN CAPCUT (mobile):
+  1. Importa reel_NN_raw.mp4
+  2. Texto -> Subtitulos automaticos -> Importar SRT (selecciona .srt)
+     (o pega manualmente las lineas del .srt)
+  3. Aplica tu estilo de texto/animacion
+  4. Anade musica de la libreria de CapCut
+  5. Exporta
+
+USO EN DAVINCI RESOLVE (gratis, profesional):
+  1. Media Pool: arrastra reel_NN_raw.mp4
+  2. File -> Import -> Subtitle -> selecciona reel_NN.srt
+  3. Lleva ambos al timeline
+  4. Color grade, audio, transiciones a tu gusto
+  5. Deliver -> H.264 vertical (1080x1920, 30fps)
+
+USO EN ADOBE PREMIERE:
+  1. Project -> Import -> reel_NN_raw.mp4
+  2. File -> New -> Captions -> from File -> reel_NN.srt
+  3. Drag al timeline, editar y exportar
+
+USO EN FINAL CUT PRO:
+  1. Importa el .mp4 raw
+  2. File -> Import -> Captions -> reel_NN.srt
+  3. Editar y compartir
+
+GENERADO POR REEL/LAB
+"""
+
+
+@app.get("/job/{job_id}/pro-package.zip")
+async def pro_package(job_id: str):
+    """Genera un ZIP con los clips RAW + SRTs sueltos para edicion manual.
+    Re-renderiza cada clip en bruto (sin subs/efectos) usando ffmpeg ultrafast.
+    Tarda ~5-30s por reel. Block sync (browser espera)."""
+    import io
+    import zipfile
+
+    job = load_job(job_id)
+    if not job or not job.get("out_dir"):
+        raise HTTPException(404, "Job no existe")
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    if not out_dir.exists():
+        raise HTTPException(404, "Sin outputs")
+
+    # Resolver source video
+    first_arg = job["args"][0]
+    if job.get("use_yt"):
+        vid = yt_video_id(first_arg)
+        source = INPUT_DIR / f"yt_{vid}.mp4"
+    else:
+        source = Path(first_arg)
+        if not source.is_absolute():
+            source = ROOT / source
+    if not source.exists():
+        raise HTTPException(404, f"Source video no existe: {source.name}")
+
+    work_dir = Path(tempfile.mkdtemp(prefix="propkg_"))
+    try:
+        for reel_mp4 in sorted(out_dir.glob("reel_*.mp4")):
+            stem = reel_mp4.stem
+            segs_path = out_dir / f"{stem}.segs.json"
+            if not segs_path.exists():
+                continue
+            try:
+                sd = json.loads(segs_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            t0 = float(sd.get("t0", 0))
+            clip_len = float(sd.get("clip_len", 30))
+
+            reel_dir = work_dir / stem
+            reel_dir.mkdir(parents=True, exist_ok=True)
+
+            # Render raw 9:16 sin subs/efectos (ultrafast preset)
+            raw_path = reel_dir / f"{stem}_raw.mp4"
+            cmd = [
+                "ffmpeg", "-y", "-ss", str(t0), "-i", str(source),
+                "-t", str(clip_len),
+                "-vf", "crop=ih*9/16:ih,scale=1080:1920:flags=lanczos",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "20",
+                "-c:a", "aac", "-b:a", "192k",
+                "-movflags", "+faststart",
+                str(raw_path),
+            ]
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=180)
+            except Exception as e:
+                print(f"[propkg] fallo render raw {stem}: {e}")
+
+            # Copia el burned + thumbnail + txt + copy.json
+            shutil.copy2(reel_mp4, reel_dir / f"{stem}_burned.mp4")
+            for ext in (".jpg", ".txt", ".copy.json"):
+                src = out_dir / f"{stem}{ext}"
+                if src.exists():
+                    shutil.copy2(src, reel_dir / src.name)
+
+            # SRT desde segments
+            lines = []
+            for i, s in enumerate(sd.get("segments", []), 1):
+                lines.append(str(i))
+                lines.append(f"{_srt_time(s['start'])} --> {_srt_time(s['end'])}")
+                lines.append(s["text"])
+                lines.append("")
+            (reel_dir / f"{stem}.srt").write_text(
+                "\n".join(lines), encoding="utf-8"
+            )
+
+        (work_dir / "README.txt").write_text(_PRO_PKG_README, encoding="utf-8")
+
+        # Build ZIP
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=4) as zf:
+            for p in sorted(work_dir.rglob("*")):
+                if p.is_file():
+                    zf.write(p, arcname=str(p.relative_to(work_dir)))
+        buf.seek(0)
+        fname = f"{job['out_dir']}_propkg.zip"
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
 @app.get("/job/{job_id}/zip")
 async def job_zip(job_id: str):
     """Descarga todos los outputs del job como ZIP."""
