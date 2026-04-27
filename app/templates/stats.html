@@ -15,11 +15,19 @@
   <div class="api-status-row">
     <span class="api-label">Claude API</span>
     {% if anthropic.configured and anthropic.valid %}
-      <span class="api-pill api-ok">OK · {{ anthropic.model_display or anthropic.model }}</span>
+      <span class="api-pill api-ok">OK &middot; {{ anthropic.model_display or anthropic.model }}</span>
     {% elif anthropic.configured and not anthropic.valid %}
-      <span class="api-pill api-error">FALLO · {{ anthropic.error[:80] }}</span>
+      <span class="api-pill api-error">FALLO &middot; {{ anthropic.error[:80] }}</span>
     {% else %}
-      <span class="api-pill api-off">SIN CONFIGURAR · define ANTHROPIC_API_KEY en .env</span>
+      <span class="api-pill api-off">SIN CONFIGURAR &middot; define ANTHROPIC_API_KEY en .env</span>
+    {% endif %}
+  </div>
+  <div class="api-status-row">
+    <span class="api-label">Webhook</span>
+    {% if webhook.configured %}
+      <span class="api-pill api-ok">{{ webhook.host }}</span>
+    {% else %}
+      <span class="api-pill api-off">SIN CONFIGURAR &middot; define WEBHOOK_URL en .env</span>
     {% endif %}
   </div>
 </section>

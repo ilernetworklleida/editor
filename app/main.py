@@ -312,6 +312,68 @@ def dir_size(path: Path) -> int:
 
 
 DISK_WARN_GB = 10.0
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()
+WEBHOOK_PUBLIC_URL = os.environ.get("WEBHOOK_PUBLIC_URL", "").strip()
+
+
+def fire_webhook(job: dict) -> None:
+    """POST a WEBHOOK_URL con el resumen del job. Compatible con Slack/Discord
+    (campo `text` y `content` con string para clientes simples) + payload
+    estructurado para receivers genericos."""
+    if not WEBHOOK_URL:
+        return
+    try:
+        import httpx
+    except ImportError:
+        return
+    status = job.get("status", "?")
+    video = job.get("video", "?")
+    n_clips = job.get("n_clips", 0)
+    job_id = job.get("id", "?")
+    started = job.get("started")
+    ended = job.get("ended")
+    dur_s = 0
+    if started and ended:
+        try:
+            from datetime import datetime as _dt
+            dur_s = int((_dt.fromisoformat(ended) - _dt.fromisoformat(started)).total_seconds())
+        except Exception:
+            pass
+    public_link = ""
+    if WEBHOOK_PUBLIC_URL:
+        public_link = f"{WEBHOOK_PUBLIC_URL.rstrip('/')}/job/{job_id}"
+
+    icon = {"done": "[OK]", "error": "[ERR]",
+            "cancelled": "[CXL]", "interrupted": "[INT]"}.get(status, "[?]")
+    text = (
+        f"{icon} REEL/LAB: job {job_id} -> {status}\n"
+        f"Video: {video}\n"
+        f"Reels: {n_clips} | Duracion: {dur_s}s"
+    )
+    if public_link:
+        text += f"\n{public_link}"
+
+    payload = {
+        # Generic + Slack-compatible
+        "text": text,
+        # Discord-compatible
+        "content": text,
+        # Structured
+        "event": "job.finished",
+        "job": {
+            "id": job_id,
+            "status": status,
+            "video": video,
+            "n_clips": n_clips,
+            "duration_seconds": dur_s,
+            "url": public_link or None,
+        },
+    }
+    try:
+        httpx.post(WEBHOOK_URL, json=payload, timeout=8.0)
+        print(f"[webhook] -> {status} for {job_id}")
+    except Exception as e:
+        print(f"[webhook] fallo: {e}")
 
 
 def collect_stats() -> dict:
@@ -402,6 +464,7 @@ def run_pipeline_worker(job_id: str) -> None:
         job["ended"] = datetime.now().isoformat()
         job.pop("pid", None)
         save_job(job_id, job)
+        fire_webhook(job)
     except Exception as e:
         job = load_job(job_id) or job
         job["status"] = "error"
@@ -409,6 +472,7 @@ def run_pipeline_worker(job_id: str) -> None:
         job["ended"] = datetime.now().isoformat()
         job.pop("pid", None)
         save_job(job_id, job)
+        fire_webhook(job)
 
 
 # ===== Routes =====
@@ -1104,9 +1168,18 @@ async def api_stats():
 
 @app.get("/stats", response_class=HTMLResponse)
 async def stats_page(request: Request):
+    webhook_info: dict = {"configured": False, "host": ""}
+    if WEBHOOK_URL:
+        from urllib.parse import urlparse
+        try:
+            host = urlparse(WEBHOOK_URL).netloc or "(invalid)"
+        except Exception:
+            host = "(?)"
+        webhook_info = {"configured": True, "host": host}
     return templates.TemplateResponse(request, "stats.html", {
         "stats": collect_stats(),
         "anthropic": check_anthropic_key(),
+        "webhook": webhook_info,
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
     })
 
