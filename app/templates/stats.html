@@ -67,6 +67,18 @@
       <tr><td>perfiles</td><td>{{ stats.files.profiles }}</td></tr>
     </table>
   </div>
+
+  <div class="card stat-card stat-cost">
+    <h3>Coste Claude API</h3>
+    <table class="stat-table">
+      <tr><td>jobs con IA</td><td>{{ stats.api_cost.jobs_with_api }}</td></tr>
+      <tr><td>tokens input</td><td>{{ "{:,}".format(stats.api_cost.input_tokens) }}</td></tr>
+      <tr><td>tokens output</td><td>{{ "{:,}".format(stats.api_cost.output_tokens) }}</td></tr>
+      <tr><td>cache hit</td><td>{{ "{:,}".format(stats.api_cost.cache_read) }}</td></tr>
+      <tr><td>medio/job</td><td>${{ "%.4f"|format(stats.api_cost.avg_per_job_usd) }}</td></tr>
+      <tr class="row-total"><td><strong>total</strong></td><td><strong>${{ "%.2f"|format(stats.api_cost.total_usd) }}</strong></td></tr>
+    </table>
+  </div>
 </div>
 
 <section class="card cleanup-card">

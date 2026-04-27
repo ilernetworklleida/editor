@@ -316,6 +316,47 @@ WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()
 WEBHOOK_PUBLIC_URL = os.environ.get("WEBHOOK_PUBLIC_URL", "").strip()
 
 
+# Pricing por 1M tokens, modelo -> (input, output, cache_write_mult, cache_read_mult)
+MODEL_PRICING = {
+    "claude-opus-4-7":   (5.00, 25.00),
+    "claude-opus-4-6":   (5.00, 25.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-haiku-4-5":  (1.00,  5.00),
+}
+DEFAULT_PRICING = (5.00, 25.00)  # Opus pricing fallback
+
+
+def parse_usage_from_log(log: str) -> dict | None:
+    """Extrae tokens usados de la linea 'tokens: in=N out=N cache_write=N cache_read=N'."""
+    m = re.search(
+        r"tokens:\s*in=(\d+)\s+out=(\d+)\s+cache_write=(\d+)\s+cache_read=(\d+)",
+        log,
+    )
+    if not m:
+        return None
+    return {
+        "input_tokens": int(m.group(1)),
+        "output_tokens": int(m.group(2)),
+        "cache_write": int(m.group(3)),
+        "cache_read": int(m.group(4)),
+    }
+
+
+def usage_cost(usage: dict, model: str = "claude-opus-4-7") -> float:
+    """Calcula coste estimado en USD a partir del usage dict."""
+    in_p, out_p = MODEL_PRICING.get(model, DEFAULT_PRICING)
+    inp = usage.get("input_tokens", 0)
+    out = usage.get("output_tokens", 0)
+    cw = usage.get("cache_write", 0)
+    cr = usage.get("cache_read", 0)
+    return (
+        (inp / 1_000_000) * in_p
+        + (out / 1_000_000) * out_p
+        + (cw / 1_000_000) * in_p * 1.25
+        + (cr / 1_000_000) * in_p * 0.10
+    )
+
+
 def fire_webhook(job: dict) -> None:
     """POST a WEBHOOK_URL con el resumen del job. Compatible con Slack/Discord
     (campo `text` y `content` con string para clientes simples) + payload
@@ -381,6 +422,9 @@ def collect_stats() -> dict:
     counts = {"queued": 0, "running": 0, "done": 0, "error": 0,
               "cancelled": 0, "interrupted": 0}
     total_jobs = 0
+    total_cost = 0.0
+    total_in = total_out = total_cache_w = total_cache_r = 0
+    api_jobs = 0
     if JOBS_DIR.exists():
         for p in JOBS_DIR.glob("*.json"):
             try:
@@ -388,6 +432,14 @@ def collect_stats() -> dict:
                 s = d.get("status", "unknown")
                 counts[s] = counts.get(s, 0) + 1
                 total_jobs += 1
+                u = d.get("usage")
+                if u:
+                    api_jobs += 1
+                    total_cost += float(u.get("cost_usd", 0) or 0)
+                    total_in += int(u.get("input_tokens", 0) or 0)
+                    total_out += int(u.get("output_tokens", 0) or 0)
+                    total_cache_w += int(u.get("cache_write", 0) or 0)
+                    total_cache_r += int(u.get("cache_read", 0) or 0)
             except Exception:
                 continue
 
@@ -417,6 +469,15 @@ def collect_stats() -> dict:
             "music_tracks": len(_list_dir(MUSIC_DIR, MUSIC_EXTS)),
             "watermarks": len(_list_dir(BRANDING_DIR, IMG_EXTS)),
             "profiles": len(list_profiles()),
+        },
+        "api_cost": {
+            "jobs_with_api": api_jobs,
+            "total_usd": round(total_cost, 4),
+            "avg_per_job_usd": round(total_cost / api_jobs, 4) if api_jobs else 0,
+            "input_tokens": total_in,
+            "output_tokens": total_out,
+            "cache_write": total_cache_w,
+            "cache_read": total_cache_r,
         },
     }
 
@@ -463,6 +524,17 @@ def run_pipeline_worker(job_id: str) -> None:
         job["return_code"] = rc
         job["ended"] = datetime.now().isoformat()
         job.pop("pid", None)
+        # Parsea uso del Claude API si lo hubo
+        try:
+            log_text = log_path.read_text(encoding="utf-8", errors="replace")
+            usage = parse_usage_from_log(log_text)
+            if usage:
+                model = os.environ.get("HIGHLIGHTS_MODEL", "claude-opus-4-7")
+                usage["model"] = model
+                usage["cost_usd"] = round(usage_cost(usage, model), 5)
+                job["usage"] = usage
+        except Exception:
+            pass
         save_job(job_id, job)
         fire_webhook(job)
     except Exception as e:

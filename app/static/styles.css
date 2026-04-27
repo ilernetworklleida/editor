@@ -720,6 +720,7 @@ input[type="file"]::file-selector-button {
 .stat-table .row-error td:first-child { color: var(--error); }
 .stat-table .row-warn td:first-child { color: var(--warning); }
 .stat-table .row-total td { color: var(--text); }
+.stat-cost .row-total td:last-child { color: var(--accent); font-size: 16px; }
 .cleanup-card { margin-top: var(--space-5); }
 
 /* ===== Alerts + API status ===== */
