@@ -649,6 +649,7 @@ async def home(request: Request):
         "watermarks": _list_dir(BRANDING_DIR, IMG_EXTS),
         "recent_jobs": recent,
         "recent_reels": find_recent_reels(limit=8),
+        "niches": NICHE_TEMPLATES,
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
         "disk_warn": disk_warn,
         "disk_total_gb": stats["disk"]["total_gb"],
@@ -1524,6 +1525,108 @@ async def reburn_reel_endpoint(job_id: str, reel_id: int):
     return RedirectResponse(
         f"/job/{job_id}/edit/{reel_id}?reburned=1", status_code=303
     )
+
+
+NICHE_TEMPLATES = {
+    "negocios": {
+        "name": "Negocios / Startup",
+        "instructions": (
+            "Saca clips con frameworks concretos, metricas reales, casos de "
+            "estudio o lecciones especificas. Cada clip debe ensenar algo "
+            "accionable. Evita charla motivacional generica o frases hechas."
+        ),
+    },
+    "crypto": {
+        "name": "Cripto / Inversion",
+        "instructions": (
+            "Prioriza momentos donde se mencionen tickers ($BTC, $ETH, etc), "
+            "porcentajes, predicciones concretas o estrategias claras. "
+            "Numeros y datos por encima de opiniones."
+        ),
+    },
+    "fitness": {
+        "name": "Fitness / Salud",
+        "instructions": (
+            "Consejos accionables sobre entrenamiento, nutricion o "
+            "suplementos. Cada clip debe poderse aplicar manana mismo. "
+            "Evita motivacional vacio."
+        ),
+    },
+    "cocina": {
+        "name": "Cocina / Recetas",
+        "instructions": (
+            "Tips de tecnica, trucos rapidos, transformaciones visuales o "
+            "recetas con cantidades concretas. Visual + practico."
+        ),
+    },
+    "tutorial": {
+        "name": "Tutorial / Educativo",
+        "instructions": (
+            "Pasos concretos, explicaciones claras, definiciones. Prioriza "
+            "momentos donde se ensena algo verificable, no opinion. "
+            "Evita digresiones."
+        ),
+    },
+    "marketing": {
+        "name": "Marketing digital",
+        "instructions": (
+            "Tactica especifica que el viewer pueda aplicar. Numeros de "
+            "campanas, embudos, scripts, hooks que funcionan. Nada de "
+            "'cree en ti mismo'."
+        ),
+    },
+    "tech": {
+        "name": "Tech / Programacion",
+        "instructions": (
+            "Snippets de codigo, herramientas concretas, mejores practicas, "
+            "errores comunes. Si menciona producto/libreria/framework, "
+            "priorizalo."
+        ),
+    },
+    "real_estate": {
+        "name": "Inmobiliario",
+        "instructions": (
+            "Estrategias concretas de inversion inmobiliaria: ROI, "
+            "rentabilidad, ubicaciones, financiacion. Prioriza casos reales "
+            "y numeros."
+        ),
+    },
+    "comedia": {
+        "name": "Comedia / Entretenimiento",
+        "instructions": (
+            "Momentos divertidos, punchlines, reacciones inesperadas, "
+            "cliffhangers. Que se pueda compartir como meme o screenshot."
+        ),
+    },
+    "lifestyle": {
+        "name": "Lifestyle / Vlog",
+        "instructions": (
+            "Momentos visualmente atractivos, transformaciones, opiniones "
+            "personales fuertes, momentos cotidianos relatables."
+        ),
+    },
+    "motivacion": {
+        "name": "Motivacion / Mindset",
+        "instructions": (
+            "Momentos de insight personal, frase potente, cambio de "
+            "perspectiva. Que provoque pensar o guardar para volver luego."
+        ),
+    },
+    "viajes": {
+        "name": "Viajes",
+        "instructions": (
+            "Sitios concretos con nombre, costes reales, tips practicos, "
+            "fails. Visual + util para planificar."
+        ),
+    },
+    "ventas": {
+        "name": "Ventas / Persuasion",
+        "instructions": (
+            "Tecnicas de cierre, scripts de objecion, frases que convierten. "
+            "Especifico por encima de motivacional."
+        ),
+    },
+}
 
 
 SUPPORTED_TRANSLATIONS = {

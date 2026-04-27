@@ -286,6 +286,12 @@
     <div class="grid">
       <div class="field full">
         <label for="instructions">Que tipo de clips quieres? Cuentaselo a la IA en lenguaje natural.</label>
+        <select id="nicheTemplate" class="niche-select">
+          <option value="">— plantilla rapida por nicho (opcional, rellena el textarea) —</option>
+          {% for key, t in niches.items() %}
+            <option value="{{ key }}" data-instructions="{{ t.instructions | e }}">{{ t.name }}</option>
+          {% endfor %}
+        </select>
         <textarea name="instructions" id="instructions" rows="4"
                   placeholder="Ejemplos:&#10;- Saca clips donde habla de inversiones inmobiliarias y ROI&#10;- Solo momentos donde hay datos numericos concretos o cifras&#10;- Evita las introducciones y los segmentos donde se rie&#10;- Quiero clips polemicos o controversiales que generen debate"></textarea>
         <small>Se anaden al prompt de Claude con prioridad MAXIMA. Solo se usan

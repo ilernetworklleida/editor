@@ -185,6 +185,23 @@
     }
   });
 
+  // ===== Niche template selector -> rellena textarea instrucciones =====
+  const niche = document.getElementById("nicheTemplate");
+  const instrTa = document.getElementById("instructions");
+  if (niche && instrTa) {
+    niche.addEventListener("change", (e) => {
+      const opt = e.target.options[e.target.selectedIndex];
+      const text = opt.dataset.instructions || "";
+      if (text) {
+        instrTa.value = text;
+        instrTa.focus();
+        // Auto-marca el checkbox de IA si no lo estaba
+        const aiBox = document.getElementById("ai_highlights");
+        if (aiBox && !aiBox.checked) aiBox.checked = true;
+      }
+    });
+  }
+
   // ===== Auto-detect URL on paste in URL input =====
   const urlInput = document.getElementById("urlInput");
   if (urlInput) {
