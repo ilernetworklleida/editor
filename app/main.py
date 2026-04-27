@@ -1049,6 +1049,104 @@ def _spawn_bulk_jobs(
     return RedirectResponse(f"/jobs?q=bulk", status_code=303)
 
 
+def _srt_time(s: float) -> str:
+    h = int(s // 3600); m = int((s % 3600) // 60)
+    sec = int(s % 60); ms = int((s - int(s)) * 1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+
+@app.get("/job/{job_id}/edit/{reel_id}", response_class=HTMLResponse)
+async def edit_reel(request: Request, job_id: str, reel_id: int):
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404)
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    segs_path = out_dir / f"reel_{reel_id:02d}.segs.json"
+    if not segs_path.exists():
+        raise HTTPException(404, "Sin segmentos guardados (job antiguo, re-genera)")
+    seg_data = json.loads(segs_path.read_text(encoding="utf-8"))
+    return templates.TemplateResponse(request, "edit_reel.html", {
+        "job": job,
+        "reel_id": reel_id,
+        "seg_data": seg_data,
+        "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
+    })
+
+
+@app.post("/job/{job_id}/edit/{reel_id}")
+async def edit_reel_save(
+    job_id: str, reel_id: int,
+    segments_text: str = Form(...),
+):
+    """Guarda transcripcion editada. Una linea por segmento, formato:
+        START|END|TEXTO
+    Ej:  0.0|3.5|Hola que tal amigos
+    """
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404)
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    segs_path = out_dir / f"reel_{reel_id:02d}.segs.json"
+    if not segs_path.exists():
+        raise HTTPException(404)
+    seg_data = json.loads(segs_path.read_text(encoding="utf-8"))
+
+    new_segments = []
+    for line in segments_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("|", 2)
+        if len(parts) != 3:
+            continue
+        try:
+            start = float(parts[0].strip())
+            end = float(parts[1].strip())
+            text = parts[2].strip()
+            if text:
+                new_segments.append({"start": start, "end": end, "text": text})
+        except ValueError:
+            continue
+
+    seg_data["segments"] = new_segments
+    seg_data["edited"] = True
+    seg_data["edited_at"] = datetime.now().isoformat()
+    segs_path.write_text(
+        json.dumps(seg_data, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return RedirectResponse(
+        f"/job/{job_id}/edit/{reel_id}?saved=1", status_code=303
+    )
+
+
+@app.get("/job/{job_id}/srt/{reel_id}")
+async def download_srt(job_id: str, reel_id: int):
+    """Descarga .srt generado a partir de los segmentos (editados o no)."""
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404)
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    segs_path = out_dir / f"reel_{reel_id:02d}.segs.json"
+    if not segs_path.exists():
+        raise HTTPException(404, "Sin segmentos guardados (job antiguo)")
+    seg_data = json.loads(segs_path.read_text(encoding="utf-8"))
+
+    lines = []
+    for i, s in enumerate(seg_data.get("segments", []), 1):
+        lines.append(str(i))
+        lines.append(f"{_srt_time(s['start'])} --> {_srt_time(s['end'])}")
+        lines.append(s["text"])
+        lines.append("")
+    content = "\n".join(lines)
+    fname = f"reel_{reel_id:02d}.srt"
+    return Response(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @app.post("/job/{job_id}/rerun")
 async def rerun_job(job_id: str):
     """Lanza un job nuevo con exactamente los mismos args que el anterior."""

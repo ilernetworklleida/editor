@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Editar reel {{ reel_id }} · REEL/LAB{% endblock %}
+
+{% block content %}
+<a href="/job/{{ job.id }}" class="back-link">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+  Volver al job
+</a>
+
+<section class="hero" style="margin-bottom: var(--space-5); text-align: left;">
+  <h1>Editar reel <span class="grad-accent">{{ "%02d"|format(reel_id) }}</span></h1>
+  <p class="hero-sub" style="margin-left: 0;">
+    Corrige transcripcion. Cada linea = un segmento. Formato:
+    <code>SEGUNDOS_INICIO|SEGUNDOS_FIN|TEXTO</code>.
+    Tras guardar puedes descargar un .srt corregido.
+  </p>
+</section>
+
+{% if request.query_params.get('saved') %}
+<div class="alert alert-warn" style="background: rgba(16,185,129,.1); border-color: rgba(16,185,129,.3);">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color: var(--success);"><polyline points="20 6 9 17 4 12"></polyline></svg>
+  Cambios guardados.
+  <a href="/job/{{ job.id }}/srt/{{ reel_id }}" download>Descargar .srt corregido</a>
+</div>
+{% endif %}
+
+<section class="card">
+  <div class="card-title-row">
+    <h2 class="card-title" style="margin-bottom: 0;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+      Transcripcion ({{ seg_data.segments|length }} segmentos &middot; idioma {{ seg_data.language }})
+    </h2>
+    <a href="/job/{{ job.id }}/srt/{{ reel_id }}" class="btn-link" download>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      .srt actual
+    </a>
+  </div>
+
+  <form method="post" action="/job/{{ job.id }}/edit/{{ reel_id }}">
+    <div class="field">
+      <textarea name="segments_text" rows="20" class="segments-editor">{% for s in seg_data.segments %}{{ "%.2f"|format(s.start) }}|{{ "%.2f"|format(s.end) }}|{{ s.text }}
+{% endfor %}</textarea>
+      <small>Lineas que empiecen con <code>#</code> se ignoran.
+        Si quieres anadir un segmento nuevo, copia el formato.</small>
+    </div>
+    <button type="submit" class="btn-primary" style="margin-top: var(--space-3);">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      Guardar cambios
+    </button>
+  </form>
+</section>
+
+<section class="card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+    Que pasa con los cambios?
+  </h2>
+  <p style="color: var(--text-muted); margin: 0 0 var(--space-2);">
+    Los cambios se guardan en el <code>.segs.json</code>. El <strong>video reel ya generado NO se re-renderiza</strong>
+    automaticamente — el video sigue con los subs originales quemados.
+  </p>
+  <p style="color: var(--text-muted); margin: 0 0 var(--space-2);">
+    Para usar la transcripcion corregida:
+  </p>
+  <ul style="color: var(--text-muted); padding-left: var(--space-5); font-size: 14px;">
+    <li><strong>Sube el .srt corregido</strong> aparte a TikTok/YouTube como archivo de subtitulos (no quemados, seleccionables).</li>
+    <li>O usa el <a href="/job/{{ job.id }}">boton "Re-ejecutar"</a> en el job para regenerar el video entero (esto NO usa tus cambios — re-Whisper).</li>
+    <li>Re-burn directo de subs editados sobre el reel: lo dejo para una proxima iteracion (requiere refactorizar el pipeline).</li>
+  </ul>
+</section>
+{% endblock %}

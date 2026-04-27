@@ -1050,6 +1050,13 @@ input[type="file"]::file-selector-button {
   line-height: 1.5;
 }
 
+.segments-editor {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  min-height: 400px;
+  line-height: 1.7;
+}
+
 /* ===== Profiles editor ===== */
 .profiles-layout {
   display: grid;

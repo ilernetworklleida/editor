@@ -206,9 +206,13 @@ def find_highlights(all_segs: list, target_dur: float, n: int) -> list[dict]:
 
 
 def find_highlights_ai(all_segs: list, target_dur: float, n: int,
-                       language: str = "es") -> list[dict] | None:
+                       language: str = "es",
+                       instructions: str = "") -> list[dict] | None:
     """
     Pide a Claude que seleccione los N momentos mas virales del transcript.
+    Si `instructions` no esta vacio, esas instrucciones se usan como criterio
+    PRIORITARIO de seleccion (el usuario te dice que tipo de clips quiere).
+
     Devuelve None si:
       - falta ANTHROPIC_API_KEY
       - falta el SDK anthropic
@@ -253,12 +257,21 @@ def find_highlights_ai(all_segs: list, target_dur: float, n: int,
         "- ordena por start ascendente"
     )
 
+    user_extras = ""
+    if instructions.strip():
+        user_extras = (
+            f"\nINSTRUCCIONES ESPECIFICAS DEL USUARIO (PRIORIDAD MAXIMA, "
+            f"interpretalas literalmente):\n{instructions.strip()}\n"
+        )
     user_msg = (
         f"Idioma del video: {language}\n"
         f"Duracion objetivo por clip: {target_dur:.0f} segundos\n"
-        f"Numero de clips a elegir: {n}\n\n"
+        f"Numero de clips a elegir: {n}\n"
+        f"{user_extras}\n"
         f"Transcript (timestamps en segundos):\n\n{transcript}\n\n"
-        f"Elige los {n} MEJORES clips. Razona brevemente cada eleccion."
+        f"Elige los {n} MEJORES clips siguiendo los criterios virales y, "
+        f"si hay instrucciones del usuario, priorizandolas. Razona "
+        f"brevemente cada eleccion (en el mismo idioma del video)."
     )
 
     class Clip(BaseModel):
@@ -554,12 +567,16 @@ def build_video_filter(clip_len: float, ass_arg: str,
     )
 
 
-def build_audio_filter(clip_len: float) -> str:
+def build_audio_filter(clip_len: float, normalize: bool = True) -> str:
     fade_out_st = max(0.0, clip_len - FADE)
-    return (
-        f"afade=t=in:st=0:d={FADE},"
-        f"afade=t=out:st={fade_out_st}:d={FADE}"
-    )
+    parts = []
+    if normalize:
+        # loudnorm single-pass: -16 LUFS integrated, -1.5 dB true peak.
+        # Asegura que TODOS los reels suenan al mismo volumen consistente.
+        parts.append("loudnorm=I=-16:LRA=11:TP=-1.5")
+    parts.append(f"afade=t=in:st=0:d={FADE}")
+    parts.append(f"afade=t=out:st={fade_out_st}:d={FADE}")
+    return ",".join(parts)
 
 
 def build_audio_with_music_complex(clip_len: float, music_volume: float = 0.18,
@@ -643,7 +660,9 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          watermark_scale: float = 12.0,
          translate_en: bool = False,
          ai_highlights: bool = False,
-         out_suffix: str = "") -> None:
+         out_suffix: str = "",
+         instructions: str = "",
+         normalize_audio: bool = True) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -750,9 +769,11 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
     else:
         clips = []
         if ai_highlights:
-            print(f"[..] AI highlights (Claude): pidiendo seleccion...")
+            mode_label = "con instrucciones" if instructions.strip() else "modo libre"
+            print(f"[..] AI highlights (Claude, {mode_label}): pidiendo seleccion...")
             ai_result = find_highlights_ai(
-                selection_segs, target_dur, n_clips, info.language
+                selection_segs, target_dur, n_clips, info.language,
+                instructions=instructions,
             )
             if ai_result:
                 clips = ai_result
@@ -799,6 +820,29 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                 clip_len=clip_len,
             )
 
+            # Persiste palabras/segmentos del reel en JSON para que el editor
+            # web pueda mostrarlos y exportar .srt/.ass corregidos.
+            segs_json_path = out_dir / f"reel_{clip_id:02d}.segs.json"
+            seg_data = {
+                "clip_id": clip_id,
+                "t0": t0, "t1": t1, "clip_len": clip_len,
+                "language": info.language,
+                "words": clip_words,  # ya con tiempos relativos al clip
+                "segments": [
+                    {
+                        "start": max(0.0, s - t0),
+                        "end": min(clip_len, e - t0),
+                        "text": t.strip(),
+                    }
+                    for s, e, t in all_segs
+                    if s >= t0 - 0.5 and e <= t1 + 0.5
+                ],
+            }
+            segs_json_path.write_text(
+                json.dumps(seg_data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
             out_path = out_dir / f"reel_{clip_id:02d}.mp4"
             ass_arg = ffmpeg_path_for_filter(ass_path)
 
@@ -807,7 +851,7 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
             # Pipeline simple si NO hay musica NI watermark; si hay alguno,
             # usamos filter_complex con todos los inputs.
             if not music_path and not watermark_path:
-                af = build_audio_filter(clip_len)
+                af = build_audio_filter(clip_len, normalize=normalize_audio)
                 cmd = [
                     "ffmpeg", "-y",
                     "-ss", str(t0), "-i", str(video),
@@ -847,11 +891,12 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
 
                 if music_idx is not None:
                     fade_out_st = max(0.0, clip_len - FADE)
+                    norm = "loudnorm=I=-16:LRA=11:TP=-1.5," if normalize_audio else ""
                     if ducking:
                         boosted = min(1.0, music_volume * 2.5)
                         parts.append(
                             f"[{music_idx}:a]volume={boosted}[m_pre];"
-                            f"[0:a]asplit=2[v0][v_trig];"
+                            f"[0:a]{norm}asplit=2[v0][v_trig];"
                             f"[m_pre][v_trig]sidechaincompress="
                             f"threshold=0.04:ratio=12:attack=10:release=350[m_duck];"
                             f"[m_duck]afade=t=in:st=0:d={FADE},"
@@ -866,7 +911,7 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                             f"[{music_idx}:a]volume={music_volume},"
                             f"afade=t=in:st=0:d={FADE},"
                             f"afade=t=out:st={fade_out_st}:d={FADE}[m];"
-                            f"[0:a]afade=t=in:st=0:d={FADE},"
+                            f"[0:a]{norm}afade=t=in:st=0:d={FADE},"
                             f"afade=t=out:st={fade_out_st}:d={FADE}[v];"
                             f"[v][m]amix=inputs=2:duration=first:"
                             f"dropout_transition=0[aout]"
@@ -874,8 +919,9 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                     final_a = "[aout]"
                 else:
                     fade_out_st = max(0.0, clip_len - FADE)
+                    norm = "loudnorm=I=-16:LRA=11:TP=-1.5," if normalize_audio else ""
                     parts.append(
-                        f"[0:a]afade=t=in:st=0:d={FADE},"
+                        f"[0:a]{norm}afade=t=in:st=0:d={FADE},"
                         f"afade=t=out:st={fade_out_st}:d={FADE}[aout]"
                     )
                     final_a = "[aout]"
@@ -1025,6 +1071,8 @@ def parse_args(argv: list):
     translate_en = bool(extract_first("--translate-en", has_value=False))
     ai_highlights = bool(extract_first("--ai-highlights", has_value=False))
     out_suffix = extract_first("--out-suffix") or ""
+    instructions = extract_first("--instructions") or ""
+    normalize_audio = not extract_first("--no-normalize", has_value=False)
 
     if len(args) < 2:
         return None
@@ -1032,7 +1080,7 @@ def parse_args(argv: list):
             skip_start, skip_end, music, with_hook, music_volume,
             grade, outro_text, outro_duration, ducking,
             watermark, watermark_pos, watermark_scale, translate_en,
-            ai_highlights, out_suffix)
+            ai_highlights, out_suffix, instructions, normalize_audio)
 
 
 if __name__ == "__main__":
@@ -1041,10 +1089,11 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od, dk, wm, wp, ws, te, ai, osfx) = parsed
+     gr, ot, od, dk, wm, wp, ws, te, ai, osfx, ins, nrm) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
          grade=gr, outro_text=ot, outro_duration=od,
          ducking=dk, watermark=wm, watermark_pos=wp,
          watermark_scale=ws, translate_en=te,
-         ai_highlights=ai, out_suffix=osfx)
+         ai_highlights=ai, out_suffix=osfx,
+         instructions=ins, normalize_audio=nrm)
