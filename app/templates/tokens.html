@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}API tokens · REEL/LAB{% endblock %}
+
+{% block content %}
+<section class="hero" style="margin-bottom: var(--space-5);">
+  <h1>API tokens</h1>
+  <p class="hero-sub">Para lanzar jobs desde scripts externos via <code>POST /api/run</code>.</p>
+</section>
+
+{% if new_token %}
+<div class="alert" style="background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.3); flex-direction: column; align-items: flex-start;">
+  <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color: var(--success); flex-shrink: 0;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+    <strong>Token creado. Guardalo AHORA, no se mostrara de nuevo.</strong>
+  </div>
+  <div class="token-display" id="newTok">{{ new_token }}</div>
+  <button type="button" class="btn-link" onclick="navigator.clipboard.writeText(document.getElementById('newTok').textContent.trim()); this.textContent='copiado';">copiar</button>
+</div>
+{% endif %}
+
+<section class="card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    Nuevo token
+  </h2>
+  <form method="post" action="/tokens/create">
+    <div class="grid">
+      <div class="field full">
+        <label for="name">Nombre descriptivo (no se puede cambiar)</label>
+        <input type="text" name="name" id="name" required placeholder="Ej: Slack bot, n8n workflow, mi script python..." maxlength="60">
+      </div>
+    </div>
+    <button type="submit" class="btn-primary" style="margin-top: var(--space-3);">Generar token</button>
+  </form>
+</section>
+
+{% if tokens %}
+<section class="card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+    Tokens activos ({{ tokens|length }})
+  </h2>
+  <table class="sched-table">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>ID</th>
+        <th>Creado</th>
+        <th>Ultimo uso</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in tokens %}
+      <tr>
+        <td><strong>{{ t.name }}</strong></td>
+        <td><code>{{ t.id }}</code></td>
+        <td><small>{{ t.created[:10] }}</small></td>
+        <td><small>{% if t.last_used %}{{ t.last_used[:16]|replace('T', ' ') }}{% else %}<span class="text-dim">nunca</span>{% endif %}</small></td>
+        <td>
+          <form method="post" action="/tokens/{{ t.id }}/revoke" style="display:inline;" onsubmit="return confirm('Revocar este token? El script que lo use dejara de funcionar.');">
+            <button type="submit" class="btn-link btn-danger" title="Revocar">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>
+              revocar
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+    Como usarlo
+  </h2>
+  <p class="muted-row">Ejemplo curl:</p>
+  <pre class="log" style="margin: 0;">curl -X POST {{ request.base_url }}api/run \
+  -H "X-API-Token: TU_TOKEN_AQUI" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://www.youtube.com/watch?v=ID",
+    "n_clips": 6,
+    "profile": "viral",
+    "ai_highlights": true,
+    "instructions": "Solo clips donde habla de tema X"
+  }'</pre>
+
+  <p class="muted-row" style="margin-top: var(--space-3);">Respuesta:</p>
+  <pre class="log" style="margin: 0;">{
+  "job_id": "abc123",
+  "status": "queued",
+  "url_status": "/api/job/abc123",
+  "url_view": "/job/abc123"
+}</pre>
+
+  <p class="muted-row" style="margin-top: var(--space-3);">Polling para saber cuando acaba:</p>
+  <pre class="log" style="margin: 0;">curl {{ request.base_url }}api/job/abc123 -H "X-API-Token: TU_TOKEN"</pre>
+</section>
+{% endblock %}

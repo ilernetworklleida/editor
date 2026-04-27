@@ -32,6 +32,9 @@ jobs/
 # Schedules privadas (URLs, cron, etc. son tuyas)
 schedules.json
 
+# Tokens API (hasheados, pero igualmente privados)
+api_tokens.json
+
 # FastAPI / uvicorn
 *.pid
 

@@ -39,6 +39,7 @@ BRANDING_DIR = ROOT / "branding"
 SCRIPTS_DIR = ROOT / "scripts"
 APP_DIR = ROOT / "app"
 SCHEDULES_FILE = ROOT / "schedules.json"
+API_TOKENS_FILE = ROOT / "api_tokens.json"
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -72,13 +73,14 @@ def is_authed(request: Request) -> bool:
 
 
 class CookieAuthMiddleware(BaseHTTPMiddleware):
-    """Protege rutas. Login form en /login. Static y health publicos."""
+    """Protege rutas. Login form en /login. Static y health publicos.
+    /api/run usa autenticacion por token en vez de cookie (ver endpoint)."""
 
     async def dispatch(self, request, call_next):
         if not AUTH_ENABLED:
             return await call_next(request)
         path = request.url.path
-        if (path in {"/login", "/api/health"}
+        if (path in {"/login", "/api/health", "/api/run"}
                 or path.startswith("/static/")):
             return await call_next(request)
         if is_authed(request):
@@ -1336,6 +1338,169 @@ async def api_job(job_id: str):
 @app.get("/api/health")
 async def health():
     return {"ok": True, "version": "1.0"}
+
+
+# ===== API tokens =====
+
+def _load_tokens() -> list[dict]:
+    if not API_TOKENS_FILE.exists():
+        return []
+    try:
+        return json.loads(API_TOKENS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_tokens(toks: list[dict]) -> None:
+    API_TOKENS_FILE.write_text(
+        json.dumps(toks, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _hash_token(plain: str) -> str:
+    import hashlib
+    return hashlib.sha256(plain.encode("utf-8")).hexdigest()
+
+
+def create_api_token(name: str) -> str:
+    """Crea un token nuevo. Devuelve el plaintext (mostrar 1 vez al usuario)."""
+    plain = secrets.token_hex(24)
+    toks = _load_tokens()
+    toks.append({
+        "id": "tok_" + secrets.token_hex(6),
+        "name": name,
+        "hash": _hash_token(plain),
+        "created": datetime.now().isoformat(),
+        "last_used": None,
+    })
+    _save_tokens(toks)
+    return plain
+
+
+def verify_api_token(plain: str) -> dict | None:
+    h = _hash_token(plain)
+    toks = _load_tokens()
+    for t in toks:
+        if secrets.compare_digest(t.get("hash", ""), h):
+            t["last_used"] = datetime.now().isoformat()
+            _save_tokens(toks)
+            return t
+    return None
+
+
+@app.get("/tokens", response_class=HTMLResponse)
+async def tokens_page(request: Request, new: str = ""):
+    return templates.TemplateResponse(request, "tokens.html", {
+        "tokens": _load_tokens(),
+        "new_token": new,
+        "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
+    })
+
+
+@app.post("/tokens/create")
+async def tokens_create(name: str = Form(...)):
+    safe_name = name.strip()[:60]
+    if not safe_name:
+        raise HTTPException(400, "Nombre invalido")
+    plain = create_api_token(safe_name)
+    return RedirectResponse(f"/tokens?new={plain}", status_code=303)
+
+
+@app.post("/tokens/{tok_id}/revoke")
+async def tokens_revoke(tok_id: str):
+    toks = [t for t in _load_tokens() if t["id"] != tok_id]
+    _save_tokens(toks)
+    return RedirectResponse("/tokens", status_code=303)
+
+
+@app.post("/api/run")
+async def api_run(request: Request):
+    """Endpoint programatico para crear jobs. Auth via X-API-Token header
+    o ?token= query param. Body JSON con {url|video, n_clips, profile, ...}.
+
+    Si AUTH_ENABLED=False, este endpoint NO requiere token (modo local)."""
+    if AUTH_ENABLED:
+        token = (
+            request.headers.get("x-api-token", "").strip()
+            or request.query_params.get("token", "").strip()
+        )
+        if not token or not verify_api_token(token):
+            return JSONResponse(
+                {"error": "Invalid or missing API token (use X-API-Token header)"},
+                status_code=401,
+            )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Body debe ser JSON"}, status_code=400)
+
+    url = (body.get("url") or "").strip()
+    video = (body.get("video") or "").strip()
+    n_clips = int(body.get("n_clips", 6))
+    profile = body.get("profile") or ""
+    instructions = body.get("instructions") or ""
+    ai_highlights = "on" if body.get("ai_highlights") else ""
+    style = body.get("style") or "clean"
+    grade = body.get("grade") or "none"
+
+    if not url and not video:
+        return JSONResponse({"error": "Falta url o video"}, status_code=400)
+
+    base_args = []
+    if profile:
+        base_args += ["--profile", profile]
+    else:
+        if style != "clean":
+            base_args += ["--style", style]
+        if grade != "none":
+            base_args += ["--grade", grade]
+    if ai_highlights:
+        base_args += ["--ai-highlights"]
+    if instructions:
+        base_args += ["--instructions", instructions]
+
+    use_yt = bool(url)
+    if use_yt:
+        vid = yt_video_id(url)
+        if not vid:
+            return JSONResponse({"error": "URL no reconocida"}, status_code=400)
+        out_dir_name = f"yt_{vid}_pro"
+        args = [url, str(n_clips)] + base_args
+        video_label = f"(URL) {url[:60]}"
+    else:
+        video_path = INPUT_DIR / video
+        if not video_path.exists():
+            return JSONResponse({"error": f"Video no existe: {video}"}, status_code=404)
+        out_dir_name = f"{video_path.stem}_pro"
+        args = [str(video_path), str(n_clips)] + base_args
+        video_label = video
+
+    job_id = uuid.uuid4().hex[:12]
+    save_job(job_id, {
+        "id": job_id,
+        "video": video_label,
+        "url": url if use_yt else None,
+        "use_yt": use_yt,
+        "n_clips": n_clips,
+        "profile": profile or None,
+        "args": args,
+        "status": "queued",
+        "created": datetime.now().isoformat(),
+        "started": None,
+        "ended": None,
+        "out_dir": out_dir_name,
+        "via_api": True,
+    })
+    threading.Thread(
+        target=run_pipeline_worker, args=(job_id,), daemon=True
+    ).start()
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "queued",
+        "url_status": f"/api/job/{job_id}",
+        "url_view": f"/job/{job_id}",
+    })
 
 
 # ===== Scheduler (APScheduler) =====
