@@ -38,6 +38,7 @@ MUSIC_DIR = ROOT / "music"
 BRANDING_DIR = ROOT / "branding"
 SCRIPTS_DIR = ROOT / "scripts"
 APP_DIR = ROOT / "app"
+SCHEDULES_FILE = ROOT / "schedules.json"
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -1231,6 +1232,214 @@ async def api_job(job_id: str):
 @app.get("/api/health")
 async def health():
     return {"ok": True, "version": "1.0"}
+
+
+# ===== Scheduler (APScheduler) =====
+
+def _load_schedules() -> list[dict]:
+    if not SCHEDULES_FILE.exists():
+        return []
+    try:
+        return json.loads(SCHEDULES_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_schedules(scheds: list[dict]) -> None:
+    SCHEDULES_FILE.write_text(
+        json.dumps(scheds, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _spawn_scheduled_job(sched_id: str) -> None:
+    """Crea un job nuevo en cola para una schedule dada."""
+    scheds = _load_schedules()
+    sched = next((s for s in scheds if s["id"] == sched_id), None)
+    if not sched or not sched.get("enabled", True):
+        return
+    if not sched.get("url"):
+        print(f"[sched] {sched_id} sin URL")
+        return
+    base_args = []
+    if sched.get("profile"):
+        base_args += ["--profile", sched["profile"]]
+    if sched.get("ai_highlights"):
+        base_args += ["--ai-highlights"]
+    if sched.get("instructions"):
+        base_args += ["--instructions", sched["instructions"]]
+    n_clips = int(sched.get("n_clips", 6))
+    args = [sched["url"], str(n_clips)] + base_args
+    vid = yt_video_id(sched["url"])
+    if not vid:
+        print(f"[sched] URL invalida en {sched_id}")
+        return
+    job_id = uuid.uuid4().hex[:12]
+    save_job(job_id, {
+        "id": job_id,
+        "video": f"(scheduled '{sched.get('name','')}') {sched['url'][:60]}",
+        "url": sched["url"],
+        "use_yt": True,
+        "n_clips": n_clips,
+        "profile": sched.get("profile") or None,
+        "args": args,
+        "status": "queued",
+        "created": datetime.now().isoformat(),
+        "started": None,
+        "ended": None,
+        "out_dir": f"yt_{vid}_pro",
+        "scheduled_by": sched_id,
+    })
+    threading.Thread(
+        target=run_pipeline_worker, args=(job_id,), daemon=True
+    ).start()
+    # Update last_run
+    sched["last_run"] = datetime.now().isoformat()
+    _save_schedules(scheds)
+    print(f"[sched] {sched_id} -> job {job_id}")
+
+
+_scheduler = None
+
+
+def _init_scheduler():
+    global _scheduler
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+    except ImportError:
+        print("[sched] APScheduler no instalado")
+        return
+    _scheduler = BackgroundScheduler(daemon=True)
+    for s in _load_schedules():
+        if not s.get("enabled", True):
+            continue
+        try:
+            _scheduler.add_job(
+                _spawn_scheduled_job,
+                CronTrigger.from_crontab(s["cron"]),
+                id=s["id"],
+                args=[s["id"]],
+                replace_existing=True,
+            )
+        except Exception as e:
+            print(f"[sched] error registrando {s.get('id')}: {e}")
+    _scheduler.start()
+    print(f"[sched] scheduler iniciado con {len(_scheduler.get_jobs())} jobs")
+
+
+def _refresh_scheduler():
+    """Re-registra todas las schedules en APScheduler."""
+    if not _scheduler:
+        return
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+    except ImportError:
+        return
+    for j in list(_scheduler.get_jobs()):
+        _scheduler.remove_job(j.id)
+    for s in _load_schedules():
+        if not s.get("enabled", True):
+            continue
+        try:
+            _scheduler.add_job(
+                _spawn_scheduled_job,
+                CronTrigger.from_crontab(s["cron"]),
+                id=s["id"],
+                args=[s["id"]],
+                replace_existing=True,
+            )
+        except Exception as e:
+            print(f"[sched] error registrando {s.get('id')}: {e}")
+
+
+_init_scheduler()
+
+
+@app.get("/schedules", response_class=HTMLResponse)
+async def schedules_page(request: Request):
+    scheds = _load_schedules()
+    # Calculate next run for each
+    if _scheduler:
+        for s in scheds:
+            j = _scheduler.get_job(s["id"])
+            s["next_run"] = j.next_run_time.isoformat() if j and j.next_run_time else None
+    return templates.TemplateResponse(request, "schedules.html", {
+        "schedules": scheds,
+        "profiles": list_profiles(),
+        "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
+    })
+
+
+@app.post("/schedules/save")
+async def schedules_save(
+    name: str = Form(...),
+    cron: str = Form(...),
+    url: str = Form(...),
+    n_clips: int = Form(6),
+    profile: str = Form(""),
+    ai_highlights: str = Form(""),
+    instructions: str = Form(""),
+    sched_id: str = Form(""),
+):
+    # Validate cron
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        CronTrigger.from_crontab(cron)
+    except Exception as e:
+        raise HTTPException(400, f"Cron invalido: {e}")
+    if not url.startswith("http"):
+        raise HTTPException(400, "URL invalida")
+    scheds = _load_schedules()
+    if sched_id:
+        existing = next((s for s in scheds if s["id"] == sched_id), None)
+        if existing:
+            existing.update({
+                "name": name, "cron": cron, "url": url,
+                "n_clips": int(n_clips), "profile": profile,
+                "ai_highlights": ai_highlights == "on",
+                "instructions": instructions,
+            })
+    else:
+        sched_id = "sched_" + uuid.uuid4().hex[:10]
+        scheds.append({
+            "id": sched_id, "name": name, "cron": cron, "url": url,
+            "n_clips": int(n_clips), "profile": profile,
+            "ai_highlights": ai_highlights == "on",
+            "instructions": instructions,
+            "enabled": True,
+            "created": datetime.now().isoformat(),
+            "last_run": None,
+        })
+    _save_schedules(scheds)
+    _refresh_scheduler()
+    return RedirectResponse("/schedules", status_code=303)
+
+
+@app.post("/schedules/{sched_id}/toggle")
+async def schedules_toggle(sched_id: str):
+    scheds = _load_schedules()
+    for s in scheds:
+        if s["id"] == sched_id:
+            s["enabled"] = not s.get("enabled", True)
+            break
+    _save_schedules(scheds)
+    _refresh_scheduler()
+    return RedirectResponse("/schedules", status_code=303)
+
+
+@app.post("/schedules/{sched_id}/delete")
+async def schedules_delete(sched_id: str):
+    scheds = [s for s in _load_schedules() if s["id"] != sched_id]
+    _save_schedules(scheds)
+    _refresh_scheduler()
+    return RedirectResponse("/schedules", status_code=303)
+
+
+@app.post("/schedules/{sched_id}/run-now")
+async def schedules_run_now(sched_id: str):
+    _spawn_scheduled_job(sched_id)
+    return RedirectResponse("/jobs", status_code=303)
 
 
 @app.get("/api/stats")

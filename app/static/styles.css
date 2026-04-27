@@ -685,6 +685,35 @@ input[type="file"]::file-selector-button {
   color: var(--text-muted);
 }
 
+/* ===== Schedules table ===== */
+.sched-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.sched-table th {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sched-table td {
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: top;
+}
+.sched-table small { color: var(--text-dim); font-size: 11px; }
+.sched-table .text-dim { color: var(--text-dim); }
+.sched-off td { opacity: 0.5; }
+.sched-actions { white-space: nowrap; }
+.sched-actions form { margin: 0; }
+.sched-actions .btn-link { padding: 5px 8px; }
+
 /* ===== Stats page ===== */
 .stats-grid {
   display: grid;

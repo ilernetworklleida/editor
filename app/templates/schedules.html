@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Schedules · REEL/LAB{% endblock %}
+
+{% block content %}
+<section class="hero" style="margin-bottom: var(--space-5);">
+  <h1>Schedules</h1>
+  <p class="hero-sub">Procesa URLs en automatico cada cierto tiempo. Util para podcasts semanales, canales recurrentes, etc.</p>
+</section>
+
+{% if schedules %}
+<section class="card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+    Schedules activas ({{ schedules|length }})
+  </h2>
+  <table class="sched-table">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Cron</th>
+        <th>URL</th>
+        <th>Proxima</th>
+        <th>Ultima</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for s in schedules %}
+      <tr class="{% if not s.enabled %}sched-off{% endif %}">
+        <td><strong>{{ s.name }}</strong>{% if s.profile %}<br><small>perfil <code>{{ s.profile }}</code></small>{% endif %}{% if s.ai_highlights %}<br><small><span class="chip-ai">AI</span></small>{% endif %}</td>
+        <td><code>{{ s.cron }}</code></td>
+        <td><small>{{ s.url[:50] }}{% if s.url|length > 50 %}…{% endif %}</small></td>
+        <td>{% if s.enabled and s.next_run %}<small>{{ s.next_run[:16]|replace('T', ' ') }}</small>{% else %}<span class="text-dim">—</span>{% endif %}</td>
+        <td>{% if s.last_run %}<small>{{ s.last_run[:16]|replace('T', ' ') }}</small>{% else %}<span class="text-dim">nunca</span>{% endif %}</td>
+        <td class="sched-actions">
+          <form method="post" action="/schedules/{{ s.id }}/run-now" style="display:inline;">
+            <button type="submit" class="btn-link" title="Lanzar ya">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            </button>
+          </form>
+          <form method="post" action="/schedules/{{ s.id }}/toggle" style="display:inline;">
+            <button type="submit" class="btn-link" title="{% if s.enabled %}Pausar{% else %}Activar{% endif %}">
+              {% if s.enabled %}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+              {% else %}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              {% endif %}
+            </button>
+          </form>
+          <form method="post" action="/schedules/{{ s.id }}/delete" style="display:inline;" onsubmit="return confirm('Borrar schedule {{ s.name }}?');">
+            <button type="submit" class="btn-link btn-danger" title="Borrar">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path></svg>
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    Nueva schedule
+  </h2>
+  <form method="post" action="/schedules/save">
+    <div class="grid">
+      <div class="field">
+        <label for="name">Nombre</label>
+        <input type="text" name="name" id="name" required placeholder="Podcast semanal X">
+      </div>
+      <div class="field">
+        <label for="cron">Cron expression</label>
+        <input type="text" name="cron" id="cron" required placeholder="0 9 * * 1" pattern="[0-9*,\/\-\s]+">
+        <small>Formato: <code>min hora dia-mes mes dia-sem</code>. Ejemplos:
+          <code>0 9 * * 1</code> = Lunes 9am.
+          <code>0 12 * * *</code> = todos los dias mediodia.
+          <code>0 */6 * * *</code> = cada 6 horas.
+        </small>
+      </div>
+      <div class="field full">
+        <label for="url">URL del video (YouTube/TikTok/IG/etc.)</label>
+        <input type="url" name="url" id="url" required placeholder="https://...">
+      </div>
+      <div class="field">
+        <label for="n_clips">Numero de reels</label>
+        <input type="number" name="n_clips" id="n_clips" value="6" min="1" max="20">
+      </div>
+      <div class="field">
+        <label for="profile">Perfil</label>
+        <select name="profile" id="profile">
+          <option value="">— ninguno —</option>
+          {% for p in profiles %}
+            <option value="{{ p }}">{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field field-checkbox">
+        <label class="check-row">
+          <input type="checkbox" name="ai_highlights" id="ai_highlights" checked>
+          <span>IA elige los mejores momentos (Claude API)</span>
+        </label>
+      </div>
+      <div class="field full">
+        <label for="instructions">Instrucciones libres para la IA (opcional)</label>
+        <textarea name="instructions" id="instructions" rows="2"
+                  placeholder="Saca solo clips donde habla de..."></textarea>
+      </div>
+    </div>
+    <button type="submit" class="btn-primary" style="margin-top: var(--space-3);">
+      Crear schedule
+    </button>
+  </form>
+</section>
+{% endblock %}
