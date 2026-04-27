@@ -1,11 +1,22 @@
-# Editor — Reels factory
+# REEL/LAB
 
-Toolkit completo (Python + FFmpeg + Whisper + Claude API + interfaz web) para
-generar **reels verticales 1080x1920** (TikTok/Reels/Shorts) desde videos largos
-o URLs de YouTube. Pipeline: highlights smart -> subtitulos animados -> Ken Burns
--> color grading -> watermark -> outro brandeado -> teaser de aviso.
+Pipeline personal de generacion de **reels verticales 1080x1920** (TikTok / Reels /
+YouTube Shorts) desde videos largos o URLs (YouTube, TikTok, Instagram, Twitter,
+Vimeo, etc.). Stack: Python + FFmpeg + Whisper + Claude API + FastAPI.
 
-Disenado para uso interno. Un solo admin (info@ilernetworklleida.com) por defecto.
+Disenado para uso interno. Un solo admin (`info@ilernetworklleida.com` por defecto).
+
+## Pipeline en una linea
+
+```
+URL/video -> Whisper transcribe -> Claude elige momentos virales (con tus
+instrucciones libres) -> recorte 9:16 -> Ken Burns -> color grading -> subs
+animados estilo viral -> hook arriba -> musica con ducking -> watermark ->
+outro brandeado -> .mp4 + .jpg + .txt + .srt + .segs.json
+```
+
+Despues puedes generar un teaser-montage con crossfades, variantes A/B con otro
+estilo, editar las transcripciones y descargar .srt corregidos.
 
 ---
 
@@ -91,11 +102,13 @@ Editor/
 
 | Path | Que es |
 | --- | --- |
-| `/` | Form principal: subir video, pegar URL(s), elegir perfil/musica/watermark/outro, lanzar job |
-| `/jobs` | Listado paginado de jobs con busqueda por video/perfil/ID y filtro de estado |
-| `/job/{id}` | Detalle del job: progreso en vivo, log streaming, galeria de reels, descarga ZIP, generar variante, generar teaser |
-| `/profiles` | CRUD de perfiles (combos de flags) desde navegador, sin tocar JSON a mano |
-| `/stats` | Uso de disco por carpeta + jobs por estado + form de cleanup |
+| `/` | Form principal: subir video, pegar URL(s), elegir perfil/musica/watermark/outro, instrucciones libres para la IA, lanzar job |
+| `/jobs` | Listado paginado de jobs con busqueda y filtro de estado |
+| `/job/{id}` | Detalle: progreso en vivo, log streaming, galeria de reels con AI reason, descarga ZIP, variante A/B, teaser, re-ejecutar, cancelar |
+| `/job/{id}/edit/{N}` | Editor de transcripcion del reel N (descarga .srt corregido) |
+| `/schedules` | CRUD de schedules cron-style. Procesa URLs en automatico (ej: cada lunes 9am) |
+| `/profiles` | CRUD de perfiles (combos de flags) desde navegador |
+| `/stats` | Uso de disco + jobs por estado + cost tracking Claude API + estado de servicios + cleanup |
 | `/login` | Form de acceso (email + password) |
 
 ### Header
@@ -136,10 +149,14 @@ EDITOR_SECRET=$(python -c "import secrets;print(secrets.token_hex(32))")
 # Claude API (opcional, para smart highlights)
 ANTHROPIC_API_KEY=sk-ant-...
 HIGHLIGHTS_MODEL=claude-opus-4-7   # default; alternativas: claude-sonnet-4-6, claude-haiku-4-5
+
+# Webhook al terminar job (Slack/Discord/IFTTT/generico)
+WEBHOOK_URL=https://hooks.slack.com/...
+WEBHOOK_PUBLIC_URL=https://editor.tu-dominio.com   # para link clickable en notif
 ```
 
 Sin `ADMIN_PASS` definido: modo local sin auth. Sin `ANTHROPIC_API_KEY`: la IA
-cae a heuristica de densidad de palabras (sin coste).
+cae a heuristica de densidad. Sin `WEBHOOK_URL`: no se envian notificaciones.
 
 ---
 
@@ -206,6 +223,8 @@ python scripts/auto_montage.py output/v_pro --per-clip 5
 --no-hook                          Quita el gancho de 3 palabras al inicio
 --translate-en                     Genera .srt EN extra
 --ai-highlights                    Claude API selecciona los mejores momentos
+--instructions "..."               Texto libre que Claude usa como criterio prioritario
+--no-normalize                     Desactiva loudnorm (audio normalizado por defecto)
 --equal                            Corte en N iguales (con smart cuts)
 --profile NAME                     Carga combo desde profiles/NAME.json
 --out-suffix _x                    Sufijo del directorio output (para variantes)

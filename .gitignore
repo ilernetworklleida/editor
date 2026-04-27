@@ -29,6 +29,9 @@ branding/*
 # Jobs del web UI (logs y metadata, no se commitean)
 jobs/
 
+# Schedules privadas (URLs, cron, etc. son tuyas)
+schedules.json
+
 # FastAPI / uvicorn
 *.pid
 
