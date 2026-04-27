@@ -433,11 +433,13 @@ def get_words_for_clip(all_words: list, t0: float, t1: float) -> list[dict]:
 def write_chunk_ass(words: list, ass_path: Path, words_per_chunk: int = 3,
                     style: str = DEFAULT_STYLE, with_hook: bool = True,
                     outro_text: str = "", outro_duration: float = 1.5,
-                    clip_len: float = 0.0) -> None:
+                    clip_len: float = 0.0, karaoke: bool = False) -> None:
     """Escribe ASS con chunks de N palabras animados (pop-in scale).
     - with_hook=True: overlay grande arriba con primeras 3 palabras (1.2s).
     - outro_text!='': overlay brandeado en los ultimos outro_duration segundos.
-      Si outro_text contiene '\\n' se convierte en salto de linea ASS."""
+      Si outro_text contiene '\\n' se convierte en salto de linea ASS.
+    - karaoke=True: en vez de mostrar 1 chunk por bloque, renderiza N
+      eventos donde cada palabra se ilumina (estilo TikTok karaoke viral)."""
     header, force_caps = STYLES.get(style, STYLES[DEFAULT_STYLE])
     if not words:
         ass_path.write_text(header, encoding="utf-8")
@@ -467,34 +469,61 @@ def write_chunk_ass(words: list, ass_path: Path, words_per_chunk: int = 3,
                 f"Reels,,0,0,0,,{hook_fx}"
             )
 
-    # ===== CHUNKS NORMALES =====
+    # ===== CHUNKS NORMALES o KARAOKE =====
+    def _clean(t: str) -> str:
+        for ch in [",", ".", "?", "!", ":", ";", "\"", "(", ")"]:
+            t = t.replace(ch, "")
+        return t.strip()
+
     i = 0
     while i < len(words):
         chunk = words[i:i + words_per_chunk]
         if not chunk:
             break
-        text = " ".join(w["word"] for w in chunk)
+        words_clean = [_clean(w["word"]) for w in chunk]
         if force_caps:
-            text = text.upper()
-        # Limpieza: quita signos que rompen ASS o no aportan
-        for ch in [",", ".", "?", "!", ":", ";", "\"", "(", ")"]:
-            text = text.replace(ch, "")
-        text = text.strip()
-        if not text:
+            words_clean = [w.upper() for w in words_clean]
+        words_clean = [w for w in words_clean if w]
+        if not words_clean:
             i += words_per_chunk
             continue
 
-        start = chunk[0]["start"]
-        end = chunk[-1]["end"]
-        # Animacion pop-in: empieza al 115% y baja a 100% en 150ms
-        text_fx = (
-            r"{\fad(60,0)\fscx115\fscy115"
-            r"\t(0,150,\fscx100\fscy100)}"
-        ) + text
-        lines.append(
-            f"Dialogue: 0,{fmt_ass_time(start)},{fmt_ass_time(end)},"
-            f"Reels,,0,0,0,,{text_fx}"
-        )
+        if karaoke and len(chunk) >= 2:
+            # Un evento por palabra: la palabra "actual" se pinta amarillo,
+            # las demas siguen blancas (color del estilo). Estilo TikTok.
+            for k, w_obj in enumerate(chunk):
+                if not words_clean[k] if k < len(words_clean) else True:
+                    continue
+                segs_text = []
+                for j, ws in enumerate(words_clean):
+                    if j == k:
+                        # Amarillo BGR &H0000FFFF& con leve scale up
+                        segs_text.append(
+                            r"{\1c&H0000FFFF&\fscx108\fscy108}" + ws +
+                            r"{\1c&H00FFFFFF&\fscx100\fscy100}"
+                        )
+                    else:
+                        segs_text.append(ws)
+                line = " ".join(segs_text)
+                start = w_obj["start"]
+                end = w_obj["end"]
+                lines.append(
+                    f"Dialogue: 0,{fmt_ass_time(start)},{fmt_ass_time(end)},"
+                    f"Reels,,0,0,0,,{line}"
+                )
+        else:
+            text = " ".join(words_clean)
+            start = chunk[0]["start"]
+            end = chunk[-1]["end"]
+            # Animacion pop-in: empieza al 115% y baja a 100% en 150ms
+            text_fx = (
+                r"{\fad(60,0)\fscx115\fscy115"
+                r"\t(0,150,\fscx100\fscy100)}"
+            ) + text
+            lines.append(
+                f"Dialogue: 0,{fmt_ass_time(start)},{fmt_ass_time(end)},"
+                f"Reels,,0,0,0,,{text_fx}"
+            )
         i += words_per_chunk
 
     # ===== OUTRO CARD (ultimos N segundos, branded) =====
@@ -662,7 +691,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          ai_highlights: bool = False,
          out_suffix: str = "",
          instructions: str = "",
-         normalize_audio: bool = True) -> None:
+         normalize_audio: bool = True,
+         karaoke: bool = False) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -817,7 +847,7 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
             write_chunk_ass(
                 clip_words, ass_path, words_chunk, style, with_hook,
                 outro_text=outro_text, outro_duration=outro_duration,
-                clip_len=clip_len,
+                clip_len=clip_len, karaoke=karaoke,
             )
 
             # Persiste palabras/segmentos del reel en JSON para que el editor
@@ -1073,6 +1103,7 @@ def parse_args(argv: list):
     out_suffix = extract_first("--out-suffix") or ""
     instructions = extract_first("--instructions") or ""
     normalize_audio = not extract_first("--no-normalize", has_value=False)
+    karaoke = bool(extract_first("--karaoke", has_value=False))
 
     if len(args) < 2:
         return None
@@ -1080,7 +1111,8 @@ def parse_args(argv: list):
             skip_start, skip_end, music, with_hook, music_volume,
             grade, outro_text, outro_duration, ducking,
             watermark, watermark_pos, watermark_scale, translate_en,
-            ai_highlights, out_suffix, instructions, normalize_audio)
+            ai_highlights, out_suffix, instructions, normalize_audio,
+            karaoke)
 
 
 if __name__ == "__main__":
@@ -1089,11 +1121,12 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od, dk, wm, wp, ws, te, ai, osfx, ins, nrm) = parsed
+     gr, ot, od, dk, wm, wp, ws, te, ai, osfx, ins, nrm, kar) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
          grade=gr, outro_text=ot, outro_duration=od,
          ducking=dk, watermark=wm, watermark_pos=wp,
          watermark_scale=ws, translate_en=te,
          ai_highlights=ai, out_suffix=osfx,
-         instructions=ins, normalize_audio=nrm)
+         instructions=ins, normalize_audio=nrm,
+         karaoke=kar)

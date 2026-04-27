@@ -734,6 +734,7 @@ async def run_job(
     ai_highlights: str = Form(""),
     instructions: str = Form(""),
     no_normalize: str = Form(""),
+    karaoke: str = Form(""),
 ):
     url = url.strip()
     if not video and not url:
@@ -749,7 +750,7 @@ async def run_job(
             urls_list, n_clips, profile, style, grade, duration, chunk,
             music, music_vol, duck, watermark, watermark_pos, watermark_scale,
             outro, outro_duration, skip_start, skip_end, no_hook,
-            translate_en, ai_highlights, instructions, no_normalize,
+            translate_en, ai_highlights, instructions, no_normalize, karaoke,
         )
 
     use_yt = bool(url)
@@ -806,6 +807,8 @@ async def run_job(
         args += ["--instructions", instructions.strip()]
     if no_normalize == "on":
         args += ["--no-normalize"]
+    if karaoke == "on":
+        args += ["--karaoke"]
 
     job_id = uuid.uuid4().hex[:12]
     job_data = {
@@ -959,7 +962,7 @@ def _build_pipeline_args(
     watermark: str, watermark_pos: str, watermark_scale: float,
     outro: str, outro_duration: float, skip_start: float, skip_end: float,
     no_hook: str, translate_en: str, ai_highlights: str,
-    instructions: str = "", no_normalize: str = "",
+    instructions: str = "", no_normalize: str = "", karaoke: str = "",
 ) -> list[str]:
     """Genera la lista de flags para auto_reels_pro a partir del form."""
     args: list[str] = []
@@ -1002,6 +1005,8 @@ def _build_pipeline_args(
         args += ["--instructions", instructions.strip()]
     if no_normalize == "on":
         args += ["--no-normalize"]
+    if karaoke == "on":
+        args += ["--karaoke"]
     return args
 
 
@@ -1011,14 +1016,14 @@ def _spawn_bulk_jobs(
     watermark: str, watermark_pos: str, watermark_scale: float,
     outro: str, outro_duration: float, skip_start: float, skip_end: float,
     no_hook: str, translate_en: str, ai_highlights: str,
-    instructions: str = "", no_normalize: str = "",
+    instructions: str = "", no_normalize: str = "", karaoke: str = "",
 ) -> RedirectResponse:
     """Crea N jobs en cola (uno por URL) y redirige al listado."""
     base_args = _build_pipeline_args(
         n_clips, profile, style, grade, duration, chunk,
         music, music_vol, duck, watermark, watermark_pos, watermark_scale,
         outro, outro_duration, skip_start, skip_end, no_hook,
-        translate_en, ai_highlights, instructions, no_normalize,
+        translate_en, ai_highlights, instructions, no_normalize, karaoke,
     )
     spawned = 0
     for u in urls:
