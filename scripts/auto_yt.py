@@ -53,9 +53,14 @@ def find_ffmpeg_dir() -> str | None:
 
 
 def extract_video_id(url: str) -> str:
-    """Extrae el ID de un URL de YouTube. Devuelve 'video' si no lo encuentra."""
+    """Extrae un ID estable de cualquier URL soportada por yt-dlp.
+    YouTube usa el v=ID. Otros (TikTok/IG/Twitter/Vimeo/Twitch...) usan
+    un hash corto del URL para tener cache estable."""
     m = re.search(r"(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{6,15})", url)
-    return m.group(1) if m else "video"
+    if m:
+        return m.group(1)
+    import hashlib
+    return "u" + hashlib.sha1(url.encode("utf-8")).hexdigest()[:11]
 
 
 def download(url: str, out_path: Path,
