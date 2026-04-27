@@ -30,6 +30,14 @@
       <span class="api-pill api-off">SIN CONFIGURAR &middot; define WEBHOOK_URL en .env</span>
     {% endif %}
   </div>
+  <div class="api-status-row">
+    <span class="api-label">Watch folder</span>
+    {% if watch.enabled %}
+      <span class="api-pill api-ok">activo &middot; cada {{ watch.interval }}s &middot; perfil: {{ watch.profile or '(ninguno)' }}{% if watch.ai %} &middot; IA{% endif %}</span>
+    {% else %}
+      <span class="api-pill api-off">DESACTIVADO &middot; WATCH_ENABLED=0 en .env</span>
+    {% endif %}
+  </div>
 </section>
 
 <div class="stats-grid">

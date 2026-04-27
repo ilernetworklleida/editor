@@ -35,6 +35,10 @@ schedules.json
 # Tokens API (hasheados, pero igualmente privados)
 api_tokens.json
 
+# Watch folder (videos que dropeas para auto-procesado)
+watch/*
+!watch/.gitkeep
+
 # FastAPI / uvicorn
 *.pid
 

@@ -40,6 +40,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 APP_DIR = ROOT / "app"
 SCHEDULES_FILE = ROOT / "schedules.json"
 API_TOKENS_FILE = ROOT / "api_tokens.json"
+WATCH_DIR = ROOT / "watch"
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -47,6 +48,9 @@ MUSIC_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".ogg"}
 
 for _d in [INPUT_DIR, OUTPUT_DIR, JOBS_DIR, PROFILES_DIR, MUSIC_DIR, BRANDING_DIR]:
     _d.mkdir(parents=True, exist_ok=True)
+
+WATCH_DIR.mkdir(parents=True, exist_ok=True)
+(WATCH_DIR / "processed").mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Editor — Reels factory")
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
@@ -1739,6 +1743,94 @@ def _refresh_scheduler():
 _init_scheduler()
 
 
+# ===== Watch folder (drop video -> auto-process) =====
+
+WATCH_INTERVAL_SEC = int(os.environ.get("WATCH_INTERVAL", "20"))
+WATCH_PROFILE = os.environ.get("WATCH_PROFILE", "").strip()
+WATCH_N_CLIPS = int(os.environ.get("WATCH_N_CLIPS", "6"))
+WATCH_AI = os.environ.get("WATCH_AI", "0").strip() == "1"
+WATCH_INSTRUCTIONS = os.environ.get("WATCH_INSTRUCTIONS", "").strip()
+WATCH_ENABLED = os.environ.get("WATCH_ENABLED", "1").strip() == "1"
+
+
+def _watch_loop():
+    """Polling daemon: detecta videos nuevos en watch/ y los procesa."""
+    import time as _time
+    seen: dict[str, int] = {}
+    while True:
+        try:
+            _time.sleep(WATCH_INTERVAL_SEC)
+            if not WATCH_DIR.exists():
+                continue
+            for p in WATCH_DIR.iterdir():
+                if not p.is_file():
+                    continue
+                if p.suffix.lower() not in VIDEO_EXTS:
+                    continue
+                key = str(p)
+                try:
+                    size_now = p.stat().st_size
+                except OSError:
+                    continue
+                if size_now == 0:
+                    continue
+                last_size = seen.get(key, -1)
+                seen[key] = size_now
+                if last_size != size_now:
+                    continue  # sigue copiandose
+
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                dest_name = f"watch_{ts}_{p.name}"
+                dest = INPUT_DIR / dest_name
+                try:
+                    p.rename(dest)
+                except OSError as e:
+                    print(f"[watch] no pude mover {p.name}: {e}")
+                    continue
+                seen.pop(key, None)
+
+                args = [str(dest), str(WATCH_N_CLIPS)]
+                if WATCH_PROFILE:
+                    args += ["--profile", WATCH_PROFILE]
+                if WATCH_AI:
+                    args += ["--ai-highlights"]
+                if WATCH_INSTRUCTIONS:
+                    args += ["--instructions", WATCH_INSTRUCTIONS]
+
+                job_id = uuid.uuid4().hex[:12]
+                save_job(job_id, {
+                    "id": job_id,
+                    "video": dest_name,
+                    "url": None,
+                    "use_yt": False,
+                    "n_clips": WATCH_N_CLIPS,
+                    "profile": WATCH_PROFILE or None,
+                    "args": args,
+                    "status": "queued",
+                    "created": datetime.now().isoformat(),
+                    "started": None,
+                    "ended": None,
+                    "out_dir": f"{dest.stem}_pro",
+                    "from_watch": True,
+                })
+                threading.Thread(
+                    target=run_pipeline_worker, args=(job_id,), daemon=True
+                ).start()
+                print(f"[watch] {p.name} -> job {job_id} "
+                      f"(perfil={WATCH_PROFILE or 'default'})")
+        except Exception as e:
+            print(f"[watch] error en loop: {e}")
+
+
+if WATCH_ENABLED:
+    threading.Thread(target=_watch_loop, daemon=True).start()
+    print(f"[watch] activo cada {WATCH_INTERVAL_SEC}s en {WATCH_DIR.name}/ "
+          f"(N={WATCH_N_CLIPS}, perfil={WATCH_PROFILE or 'ninguno'}, "
+          f"AI={'on' if WATCH_AI else 'off'})")
+else:
+    print("[watch] desactivado (WATCH_ENABLED=0)")
+
+
 @app.get("/schedules", response_class=HTMLResponse)
 async def schedules_page(request: Request):
     scheds = _load_schedules()
@@ -1844,6 +1936,12 @@ async def stats_page(request: Request):
         "stats": collect_stats(),
         "anthropic": check_anthropic_key(),
         "webhook": webhook_info,
+        "watch": {
+            "enabled": WATCH_ENABLED,
+            "interval": WATCH_INTERVAL_SEC,
+            "profile": WATCH_PROFILE,
+            "ai": WATCH_AI,
+        },
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
     })
 
