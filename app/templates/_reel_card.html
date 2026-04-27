@@ -43,6 +43,14 @@
         <span class="reel-copy-val reel-copy-tags" data-copy="{% for h in r.copy.hashtags %}#{{ h.lstrip('#') }} {% endfor %}">{% for h in r.copy.hashtags %}#{{ h.lstrip('#') }} {% endfor %}</span>
       </div>
       {% endif %}
+      {% if r.copy.broll_keywords %}
+      <div class="reel-copy-row">
+        <span class="reel-copy-label">b-roll</span>
+        <span class="reel-copy-val reel-copy-broll" data-copy="{{ r.copy.broll_keywords | join(', ') }}" title="Busca estas keywords en Pexels/Pixabay para B-roll que combine">
+          {% for kw in r.copy.broll_keywords %}<span class="broll-chip">{{ kw }}</span>{% endfor %}
+        </span>
+      </div>
+      {% endif %}
     </div>
     {% endif %}
     {% if r.txt %}

@@ -264,9 +264,16 @@
       <div class="field field-checkbox">
         <label for="generate_copy" class="check-row">
           <input type="checkbox" name="generate_copy" id="generate_copy">
-          <span>Generar copy con IA (titulo + descripcion + 1er comentario + hashtags)</span>
+          <span>Generar copy con IA (titulo + descripcion + 1er comentario + hashtags + B-roll keywords)</span>
         </label>
-        <small>Una llamada extra a Claude (~$0.01) al final del job. Listo para copiar-pegar al subir.</small>
+        <small>Una llamada extra a Claude (~$0.01) al final del job. Listo para copiar-pegar al subir, mas keywords en EN para buscar B-roll en Pexels/Pixabay.</small>
+      </div>
+      <div class="field field-checkbox">
+        <label for="denoise" class="check-row">
+          <input type="checkbox" name="denoise" id="denoise">
+          <span>Limpiar ruido de fondo (afftdn)</span>
+        </label>
+        <small>FFT denoise sobre el audio. Util si grabaste con movil en interior ruidoso, AC encendido, etc. No abuses si la grabacion ya esta limpia.</small>
       </div>
     </div>
   </section>

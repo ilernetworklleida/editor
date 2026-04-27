@@ -1241,6 +1241,21 @@ input[type="file"]::file-selector-button {
 }
 .reel-copy-val:hover::after { opacity: 1; }
 .reel-copy-tags { color: var(--accent-2); font-family: var(--font-mono); font-size: 11px; }
+.reel-copy-broll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.broll-chip {
+  display: inline-flex;
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 1px 6px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
 
 .reel-text {
   margin-top: 4px;

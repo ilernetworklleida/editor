@@ -893,6 +893,7 @@ async def run_job(
     no_normalize: str = Form(""),
     karaoke: str = Form(""),
     generate_copy: str = Form(""),
+    denoise: str = Form(""),
 ):
     url = url.strip()
     if not video and not url:
@@ -970,6 +971,8 @@ async def run_job(
         args += ["--karaoke"]
     if generate_copy == "on":
         args += ["--generate-copy"]
+    if denoise == "on":
+        args += ["--denoise"]
 
     job_id = uuid.uuid4().hex[:12]
     job_data = {
@@ -1124,7 +1127,7 @@ def _build_pipeline_args(
     outro: str, outro_duration: float, skip_start: float, skip_end: float,
     no_hook: str, translate_en: str, ai_highlights: str,
     instructions: str = "", no_normalize: str = "", karaoke: str = "",
-    generate_copy: str = "",
+    generate_copy: str = "", denoise: str = "",
 ) -> list[str]:
     """Genera la lista de flags para auto_reels_pro a partir del form."""
     args: list[str] = []
@@ -1171,6 +1174,8 @@ def _build_pipeline_args(
         args += ["--karaoke"]
     if generate_copy == "on":
         args += ["--generate-copy"]
+    if denoise == "on":
+        args += ["--denoise"]
     return args
 
 
@@ -1181,7 +1186,7 @@ def _spawn_bulk_jobs(
     outro: str, outro_duration: float, skip_start: float, skip_end: float,
     no_hook: str, translate_en: str, ai_highlights: str,
     instructions: str = "", no_normalize: str = "", karaoke: str = "",
-    generate_copy: str = "",
+    generate_copy: str = "", denoise: str = "",
 ) -> RedirectResponse:
     """Crea N jobs en cola (uno por URL) y redirige al listado."""
     base_args = _build_pipeline_args(
@@ -1189,7 +1194,7 @@ def _spawn_bulk_jobs(
         music, music_vol, duck, watermark, watermark_pos, watermark_scale,
         outro, outro_duration, skip_start, skip_end, no_hook,
         translate_en, ai_highlights, instructions, no_normalize, karaoke,
-        generate_copy,
+        generate_copy, denoise,
     )
     spawned = 0
     for u in urls:

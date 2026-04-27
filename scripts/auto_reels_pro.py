@@ -240,9 +240,14 @@ def generate_copy_for_clips(clips: list[dict], all_segs: list,
         "- first_comment: pregunta concreta o llamada a interaccion "
         "  (30-100 chars); pensada para que la gente responda\n"
         "- hashtags: 5-8 hashtags (mezcla de nicho + 1-2 genericos del "
-        "  idioma); sin '#' al inicio (yo lo anado)\n\n"
+        "  idioma); sin '#' al inicio (yo lo anado)\n"
+        "- broll_keywords: 4-6 busquedas EN INGLES (mejor catalogo) "
+        "  para encontrar stock B-roll en Pexels/Pixabay/Storyblocks que "
+        "  encajen con el tema. Frases cortas (2-4 palabras): "
+        "  'businessman typing laptop', 'crypto chart rising', etc.\n\n"
         "REGLAS:\n"
-        "- Mismo idioma del clip\n"
+        "- Mismo idioma del clip para title/desc/comment/hashtags\n"
+        "- broll_keywords SIEMPRE en INGLES\n"
         "- Si un clip es seco o poco viralizable, di title='' y "
         "  description='' (mejor honesto que inventar)\n"
         "- No uses palabras prohibidas en plataformas (sex, kill, etc.)"
@@ -258,6 +263,7 @@ def generate_copy_for_clips(clips: list[dict], all_segs: list,
         description: str
         first_comment: str
         hashtags: list[str]
+        broll_keywords: list[str] = []
 
     class CopyBatch(BaseModel):
         clips: list[CopyItem]
@@ -679,9 +685,14 @@ def build_video_filter(clip_len: float, ass_arg: str,
     )
 
 
-def build_audio_filter(clip_len: float, normalize: bool = True) -> str:
+def build_audio_filter(clip_len: float, normalize: bool = True,
+                       denoise: bool = False) -> str:
     fade_out_st = max(0.0, clip_len - FADE)
     parts = []
+    if denoise:
+        # FFT denoise para limpiar ruido de fondo/hiss (especialmente
+        # util en grabaciones de movil o en interiores ruidosos).
+        parts.append("afftdn=nf=-25")
     if normalize:
         # loudnorm single-pass: -16 LUFS integrated, -1.5 dB true peak.
         # Asegura que TODOS los reels suenan al mismo volumen consistente.
@@ -776,7 +787,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          instructions: str = "",
          normalize_audio: bool = True,
          karaoke: bool = False,
-         generate_copy: bool = False) -> None:
+         generate_copy: bool = False,
+         denoise: bool = False) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -965,7 +977,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
             # Pipeline simple si NO hay musica NI watermark; si hay alguno,
             # usamos filter_complex con todos los inputs.
             if not music_path and not watermark_path:
-                af = build_audio_filter(clip_len, normalize=normalize_audio)
+                af = build_audio_filter(clip_len, normalize=normalize_audio,
+                                        denoise=denoise)
                 cmd = [
                     "ffmpeg", "-y",
                     "-ss", str(t0), "-i", str(video),
@@ -1005,12 +1018,14 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
 
                 if music_idx is not None:
                     fade_out_st = max(0.0, clip_len - FADE)
+                    pre = "afftdn=nf=-25," if denoise else ""
                     norm = "loudnorm=I=-16:LRA=11:TP=-1.5," if normalize_audio else ""
+                    pre = pre + norm  # combina ambos en orden
                     if ducking:
                         boosted = min(1.0, music_volume * 2.5)
                         parts.append(
                             f"[{music_idx}:a]volume={boosted}[m_pre];"
-                            f"[0:a]{norm}asplit=2[v0][v_trig];"
+                            f"[0:a]{pre}asplit=2[v0][v_trig];"
                             f"[m_pre][v_trig]sidechaincompress="
                             f"threshold=0.04:ratio=12:attack=10:release=350[m_duck];"
                             f"[m_duck]afade=t=in:st=0:d={FADE},"
@@ -1025,7 +1040,7 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                             f"[{music_idx}:a]volume={music_volume},"
                             f"afade=t=in:st=0:d={FADE},"
                             f"afade=t=out:st={fade_out_st}:d={FADE}[m];"
-                            f"[0:a]{norm}afade=t=in:st=0:d={FADE},"
+                            f"[0:a]{pre}afade=t=in:st=0:d={FADE},"
                             f"afade=t=out:st={fade_out_st}:d={FADE}[v];"
                             f"[v][m]amix=inputs=2:duration=first:"
                             f"dropout_transition=0[aout]"
@@ -1033,9 +1048,11 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
                     final_a = "[aout]"
                 else:
                     fade_out_st = max(0.0, clip_len - FADE)
-                    norm = "loudnorm=I=-16:LRA=11:TP=-1.5," if normalize_audio else ""
+                    pre = "afftdn=nf=-25," if denoise else ""
+                    if normalize_audio:
+                        pre = pre + "loudnorm=I=-16:LRA=11:TP=-1.5,"
                     parts.append(
-                        f"[0:a]{norm}afade=t=in:st=0:d={FADE},"
+                        f"[0:a]{pre}afade=t=in:st=0:d={FADE},"
                         f"afade=t=out:st={fade_out_st}:d={FADE}[aout]"
                     )
                     final_a = "[aout]"
@@ -1224,6 +1241,7 @@ def parse_args(argv: list):
     normalize_audio = not extract_first("--no-normalize", has_value=False)
     karaoke = bool(extract_first("--karaoke", has_value=False))
     generate_copy = bool(extract_first("--generate-copy", has_value=False))
+    denoise = bool(extract_first("--denoise", has_value=False))
 
     if len(args) < 2:
         return None
@@ -1232,7 +1250,7 @@ def parse_args(argv: list):
             grade, outro_text, outro_duration, ducking,
             watermark, watermark_pos, watermark_scale, translate_en,
             ai_highlights, out_suffix, instructions, normalize_audio,
-            karaoke, generate_copy)
+            karaoke, generate_copy, denoise)
 
 
 if __name__ == "__main__":
@@ -1241,7 +1259,8 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od, dk, wm, wp, ws, te, ai, osfx, ins, nrm, kar, gc) = parsed
+     gr, ot, od, dk, wm, wp, ws, te, ai, osfx, ins, nrm,
+     kar, gc, dn) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
          grade=gr, outro_text=ot, outro_duration=od,
@@ -1249,4 +1268,4 @@ if __name__ == "__main__":
          watermark_scale=ws, translate_en=te,
          ai_highlights=ai, out_suffix=osfx,
          instructions=ins, normalize_audio=nrm,
-         karaoke=kar, generate_copy=gc)
+         karaoke=kar, generate_copy=gc, denoise=dn)
