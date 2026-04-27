@@ -1096,6 +1096,7 @@ async def edit_reel(request: Request, job_id: str, reel_id: int):
         "job": job,
         "reel_id": reel_id,
         "seg_data": seg_data,
+        "languages": SUPPORTED_TRANSLATIONS,
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
     })
 
@@ -1243,6 +1244,119 @@ async def reburn_reel_endpoint(job_id: str, reel_id: int):
         )
     return RedirectResponse(
         f"/job/{job_id}/edit/{reel_id}?reburned=1", status_code=303
+    )
+
+
+SUPPORTED_TRANSLATIONS = {
+    "en": "English", "es": "Spanish", "ca": "Catalan", "fr": "French",
+    "de": "German", "it": "Italian", "pt": "Portuguese", "nl": "Dutch",
+    "ru": "Russian", "ja": "Japanese", "ko": "Korean",
+    "zh": "Chinese (simplified)", "ar": "Arabic", "tr": "Turkish",
+    "pl": "Polish", "sv": "Swedish", "id": "Indonesian", "vi": "Vietnamese",
+    "hi": "Hindi", "th": "Thai",
+}
+
+
+def translate_segments_with_claude(segments: list, target_lang_code: str,
+                                   source_lang: str = "es") -> list | None:
+    """Traduce los textos de los segmentos preservando timing. Devuelve la
+    lista de segmentos traducidos o None si falla."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key or not segments:
+        return None
+    try:
+        import anthropic
+        from pydantic import BaseModel
+    except ImportError:
+        return None
+
+    target_name = SUPPORTED_TRANSLATIONS.get(target_lang_code, target_lang_code)
+    numbered = "\n".join(
+        f"{i + 1}|{s['text']}" for i, s in enumerate(segments)
+    )
+
+    system = (
+        f"Eres traductor profesional de subtitulos para video corto. "
+        f"Traduces de {source_lang} a {target_name}. "
+        f"Preservas el TONO conversacional y la estructura de cada segmento "
+        f"(no fusionas ni partes). Mantienes nombres propios y marcas como "
+        f"vienen. Si una linea es interjeccion ('eh', 'mmm'), la traduces "
+        f"al equivalente cultural del idioma destino."
+    )
+    user = (
+        f"Traduce estos subtitulos de {source_lang} a {target_name}. "
+        f"Devuelveme una lista con el MISMO numero de items, en el mismo "
+        f"orden. Cada item es {{id, translated_text}}.\n\n{numbered}"
+    )
+
+    class TransItem(BaseModel):
+        id: int
+        translated_text: str
+
+    class TransBatch(BaseModel):
+        items: list[TransItem]
+
+    model_id = os.environ.get("HIGHLIGHTS_MODEL", "claude-opus-4-7").strip()
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.parse(
+            model=model_id,
+            max_tokens=8192,
+            thinking={"type": "adaptive"},
+            cache_control={"type": "ephemeral"},
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            output_format=TransBatch,
+        )
+    except Exception as e:
+        print(f"[!!] translate fallo: {e}")
+        return None
+
+    out: list[dict] = []
+    by_id = {it.id: it.translated_text for it in response.parsed_output.items}
+    for i, s in enumerate(segments):
+        new_text = by_id.get(i + 1, s["text"])
+        out.append({"start": s["start"], "end": s["end"], "text": new_text})
+    return out
+
+
+@app.get("/job/{job_id}/translate/{reel_id}")
+async def translate_reel(job_id: str, reel_id: int, lang: str = "en"):
+    """Devuelve un .srt con la transcripcion traducida al idioma indicado.
+    Lo traduce con Claude. Necesita ANTHROPIC_API_KEY."""
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404)
+    if lang not in SUPPORTED_TRANSLATIONS:
+        raise HTTPException(400, f"Idioma no soportado: {lang}")
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    segs_path = out_dir / f"reel_{reel_id:02d}.segs.json"
+    if not segs_path.exists():
+        raise HTTPException(404, "Sin segmentos guardados")
+    seg_data = json.loads(segs_path.read_text(encoding="utf-8"))
+    src_lang = seg_data.get("language", "es")
+
+    translated = translate_segments_with_claude(
+        seg_data.get("segments", []), lang, src_lang
+    )
+    if not translated:
+        raise HTTPException(
+            500,
+            "Traduccion fallo (sin ANTHROPIC_API_KEY o error de API)",
+        )
+
+    lines = []
+    for i, s in enumerate(translated, 1):
+        lines.append(str(i))
+        lines.append(f"{_srt_time(s['start'])} --> {_srt_time(s['end'])}")
+        lines.append(s["text"])
+        lines.append("")
+    content = "\n".join(lines)
+    fname = f"reel_{reel_id:02d}_{lang}.srt"
+    return Response(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
 
 
