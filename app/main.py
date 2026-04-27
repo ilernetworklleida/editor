@@ -40,6 +40,7 @@ SCRIPTS_DIR = ROOT / "scripts"
 APP_DIR = ROOT / "app"
 SCHEDULES_FILE = ROOT / "schedules.json"
 API_TOKENS_FILE = ROOT / "api_tokens.json"
+SHARES_FILE = ROOT / "shares.json"
 WATCH_DIR = ROOT / "watch"
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm"}
@@ -78,14 +79,16 @@ def is_authed(request: Request) -> bool:
 
 class CookieAuthMiddleware(BaseHTTPMiddleware):
     """Protege rutas. Login form en /login. Static y health publicos.
-    /api/run usa autenticacion por token en vez de cookie (ver endpoint)."""
+    /api/run usa autenticacion por token en vez de cookie.
+    /share/<token> es publico (sin auth, para enviar reels a clientes)."""
 
     async def dispatch(self, request, call_next):
         if not AUTH_ENABLED:
             return await call_next(request)
         path = request.url.path
         if (path in {"/login", "/api/health", "/api/run"}
-                or path.startswith("/static/")):
+                or path.startswith("/static/")
+                or path.startswith("/share/")):
             return await call_next(request)
         if is_authed(request):
             return await call_next(request)
@@ -789,6 +792,102 @@ async def pro_package(job_id: str):
         )
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ===== Share links publicos (preview sin auth) =====
+
+def _load_shares() -> list[dict]:
+    if not SHARES_FILE.exists():
+        return []
+    try:
+        return json.loads(SHARES_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_shares(shares: list[dict]) -> None:
+    SHARES_FILE.write_text(
+        json.dumps(shares, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+@app.post("/job/{job_id}/share/{reel_id}")
+async def create_share(job_id: str, reel_id: int):
+    """Crea un link publico para un reel concreto. Devuelve la URL al token."""
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404)
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    reel_path = out_dir / f"reel_{reel_id:02d}.mp4"
+    if not reel_path.exists():
+        raise HTTPException(404, "Reel no existe")
+
+    shares = _load_shares()
+    # Reusar share existente si ya hay uno para este reel
+    existing = next(
+        (s for s in shares
+         if s["job_id"] == job_id and s["reel_id"] == reel_id),
+        None,
+    )
+    if existing:
+        return RedirectResponse(
+            f"/share/{existing['token']}?back=1", status_code=303
+        )
+
+    token = secrets.token_urlsafe(16)
+    shares.append({
+        "token": token,
+        "job_id": job_id,
+        "reel_id": reel_id,
+        "out_dir": job["out_dir"],
+        "created": datetime.now().isoformat(),
+        "views": 0,
+    })
+    _save_shares(shares)
+    return RedirectResponse(f"/share/{token}?back=1", status_code=303)
+
+
+@app.post("/share/{token}/revoke")
+async def revoke_share(token: str):
+    shares = [s for s in _load_shares() if s["token"] != token]
+    _save_shares(shares)
+    return RedirectResponse("/jobs", status_code=303)
+
+
+@app.get("/share/{token}", response_class=HTMLResponse)
+async def view_share(request: Request, token: str, back: int = 0):
+    """Pagina publica con el reel. Sin auth — para mandar a clientes."""
+    shares = _load_shares()
+    s = next((x for x in shares if x["token"] == token), None)
+    if not s:
+        raise HTTPException(404, "Link no valido o revocado")
+    out_dir = OUTPUT_DIR / s["out_dir"]
+    reel_id = s["reel_id"]
+    reel_url = f"/output/{s['out_dir']}/reel_{reel_id:02d}.mp4"
+    thumb_path = out_dir / f"reel_{reel_id:02d}.jpg"
+    thumb_url = (
+        f"/output/{s['out_dir']}/reel_{reel_id:02d}.jpg"
+        if thumb_path.exists() else None
+    )
+    copy_path = out_dir / f"reel_{reel_id:02d}.copy.json"
+    copy_data = None
+    if copy_path.exists():
+        try:
+            copy_data = json.loads(copy_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    # Increment views (skip if visiting from owner via "back=1")
+    if not back:
+        s["views"] = s.get("views", 0) + 1
+        s["last_view"] = datetime.now().isoformat()
+        _save_shares(shares)
+    return templates.TemplateResponse(request, "share.html", {
+        "share": s,
+        "reel_url": reel_url,
+        "thumb_url": thumb_url,
+        "copy": copy_data,
+        "is_owner_view": bool(back),
+    })
 
 
 @app.get("/job/{job_id}/zip")

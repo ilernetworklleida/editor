@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0a0a0f">
+  <title>Reel · REEL/LAB</title>
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f97316'%3E%3Cpath d='M23 7l-7 5 7 5V7zM3 5h13v14H3z'/%3E%3C/svg%3E">
+  {% if thumb_url %}
+  <meta property="og:image" content="{{ thumb_url }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{{ thumb_url }}">
+  {% endif %}
+  <meta property="og:title" content="{{ copy.title if copy and copy.title else 'Reel preview' }}">
+  <meta property="og:description" content="{{ copy.description if copy and copy.description else 'Reel generado con REEL/LAB' }}">
+</head>
+<body class="share-body">
+  <main class="share-main">
+    {% if is_owner_view %}
+    <div class="share-owner-bar">
+      <div>
+        <strong>Link publico activo</strong>
+        <small>Comparte la URL — no requiere login. Vistas: {{ share.views }}</small>
+      </div>
+      <div class="share-owner-actions">
+        <button onclick="navigator.clipboard.writeText(window.location.href.replace('?back=1','')); this.textContent='copiado'" class="btn-link">copiar URL</button>
+        <form method="post" action="/share/{{ share.token }}/revoke" onsubmit="return confirm('Revocar este link? El URL dejara de funcionar.');" style="display:inline;">
+          <button type="submit" class="btn-link btn-danger">revocar</button>
+        </form>
+        <a href="/job/{{ share.job_id }}" class="btn-link">volver al job</a>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="share-card">
+      <div class="share-video-wrap">
+        <video class="share-video" controls preload="metadata"
+               {% if thumb_url %}poster="{{ thumb_url }}"{% endif %}>
+          <source src="{{ reel_url }}" type="video/mp4">
+        </video>
+      </div>
+
+      {% if copy %}
+      <div class="share-info">
+        {% if copy.title %}
+        <h1 class="share-title">{{ copy.title }}</h1>
+        {% endif %}
+        {% if copy.description %}
+        <p class="share-desc">{{ copy.description }}</p>
+        {% endif %}
+        {% if copy.hashtags %}
+        <div class="share-tags">
+          {% for h in copy.hashtags %}<span>#{{ h.lstrip('#') }}</span>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <a href="{{ reel_url }}" download class="share-download btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Descargar
+      </a>
+    </div>
+
+    <footer class="share-foot">
+      Generado con <a href="https://github.com/ilernetworklleida/editor" target="_blank">REEL/LAB</a>
+    </footer>
+  </main>
+</body>
+</html>

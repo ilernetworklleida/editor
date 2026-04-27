@@ -39,6 +39,9 @@ api_tokens.json
 watch/*
 !watch/.gitkeep
 
+# Shares publicos (links activos, son privados)
+shares.json
+
 # FastAPI / uvicorn
 *.pid
 
