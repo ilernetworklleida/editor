@@ -602,6 +602,7 @@ async def home(request: Request):
         "music_files": _list_dir(MUSIC_DIR, MUSIC_EXTS),
         "watermarks": _list_dir(BRANDING_DIR, IMG_EXTS),
         "recent_jobs": recent,
+        "recent_reels": find_recent_reels(limit=8),
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
         "disk_warn": disk_warn,
         "disk_total_gb": stats["disk"]["total_gb"],
@@ -1566,6 +1567,80 @@ async def stats_page(request: Request):
         "webhook": webhook_info,
         "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
     })
+
+
+def find_recent_reels(limit: int = 6) -> list[dict]:
+    """Devuelve los ultimos N reels generados (por mtime) con miniaturas."""
+    if not OUTPUT_DIR.exists():
+        return []
+    reels = []
+    for mp4 in OUTPUT_DIR.rglob("reel_*.mp4"):
+        if not mp4.is_file():
+            continue
+        try:
+            mtime = mp4.stat().st_mtime
+        except OSError:
+            continue
+        out_dir_name = mp4.parent.name
+        # Find the job that owns this output dir
+        job_id = None
+        if JOBS_DIR.exists():
+            for jp in JOBS_DIR.glob("*.json"):
+                try:
+                    d = json.loads(jp.read_text(encoding="utf-8"))
+                    if d.get("out_dir") == out_dir_name:
+                        job_id = d["id"]
+                        break
+                except Exception:
+                    continue
+        thumb = mp4.with_suffix(".jpg")
+        reels.append({
+            "name": mp4.name,
+            "video": f"/output/{out_dir_name}/{mp4.name}",
+            "thumb": f"/output/{out_dir_name}/{thumb.name}" if thumb.exists() else None,
+            "size_mb": round(mp4.stat().st_size / (1024 * 1024), 1),
+            "mtime": mtime,
+            "job_id": job_id,
+            "out_dir": out_dir_name,
+        })
+    reels.sort(key=lambda r: r["mtime"], reverse=True)
+    return reels[:limit]
+
+
+@app.post("/jobs/bulk-delete")
+async def jobs_bulk_delete(
+    job_ids: str = Form(...),
+    delete_outputs: str = Form("on"),
+):
+    """Borra una lista de jobs por id (separados por coma) y opcionalmente sus outputs."""
+    ids = [j.strip() for j in job_ids.split(",") if j.strip()]
+    if not ids:
+        return RedirectResponse("/jobs", status_code=303)
+    deleted = 0
+    freed_bytes = 0
+    for jid in ids:
+        jp = JOBS_DIR / f"{jid}.json"
+        if not jp.exists():
+            continue
+        try:
+            d = json.loads(jp.read_text(encoding="utf-8"))
+            if delete_outputs == "on":
+                out_dir = OUTPUT_DIR / d.get("out_dir", "")
+                if out_dir.exists():
+                    freed_bytes += dir_size(out_dir)
+                    shutil.rmtree(out_dir, ignore_errors=True)
+                montage = OUTPUT_DIR / f"{d.get('out_dir','')}_montage.mp4"
+                if montage.exists():
+                    freed_bytes += montage.stat().st_size
+                    montage.unlink(missing_ok=True)
+            log_file = JOBS_DIR / f"{d['id']}.log"
+            log_file.unlink(missing_ok=True)
+            jp.unlink(missing_ok=True)
+            deleted += 1
+        except Exception:
+            continue
+    print(f"[bulk-delete] {deleted} jobs, {freed_bytes/(1024*1024):.1f} MB liberados")
+    return RedirectResponse("/jobs", status_code=303)
 
 
 @app.post("/jobs/cleanup")

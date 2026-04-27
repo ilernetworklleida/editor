@@ -837,6 +837,104 @@ input[type="file"]::file-selector-button {
   margin: 0;
 }
 
+/* ===== Recent reels gallery on home ===== */
+.recent-reels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+.recent-reel-card {
+  display: block;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: all .2s ease;
+}
+.recent-reel-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.recent-reel-card img {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  display: block;
+}
+.recent-reel-placeholder {
+  aspect-ratio: 9 / 16;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.recent-reel-info {
+  padding: 6px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.recent-reel-name { color: var(--text); }
+.recent-reel-size { color: var(--text-dim); }
+
+/* ===== Bulk delete bar on /jobs ===== */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.bulk-count {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.recent-card-wrap {
+  position: relative;
+}
+.recent-card-wrap .job-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.recent-card-wrap .job-check:hover {
+  border-color: var(--accent);
+}
+.recent-card-wrap .job-check:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.recent-card-wrap .job-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
 /* ===== Badges ===== */
 .badge {
   display: inline-flex;

@@ -289,6 +289,30 @@
   </div>
 </form>
 
+{% if recent_reels %}
+<section class="recent-section">
+  <div class="section-title-row">
+    <h2 class="section-title">Reels recientes</h2>
+    <a href="/jobs" class="btn-link">Ver todos los jobs &rarr;</a>
+  </div>
+  <div class="recent-reels-grid">
+    {% for r in recent_reels %}
+      <a href="{% if r.job_id %}/job/{{ r.job_id }}{% else %}{{ r.video }}{% endif %}" class="recent-reel-card">
+        {% if r.thumb %}
+          <img src="{{ r.thumb }}" loading="lazy" alt="{{ r.name }}">
+        {% else %}
+          <div class="recent-reel-placeholder">no thumb</div>
+        {% endif %}
+        <div class="recent-reel-info">
+          <span class="recent-reel-name">{{ r.name }}</span>
+          <span class="recent-reel-size">{{ r.size_mb }} MB</span>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 {% if recent_jobs %}
 <section class="recent-section">
   <div class="section-title-row">

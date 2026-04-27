@@ -31,20 +31,69 @@
 </form>
 
 {% if jobs %}
+<form method="post" action="/jobs/bulk-delete" id="bulkForm" onsubmit="return confirmBulkDelete()">
+  <input type="hidden" name="job_ids" id="bulkJobIds">
+  <div class="bulk-bar">
+    <label class="check-row">
+      <input type="checkbox" id="bulkSelectAll">
+      <span>Seleccionar todos</span>
+    </label>
+    <span class="bulk-count" id="bulkCount">0 seleccionados</span>
+    <label class="check-row" style="margin-left: auto;">
+      <input type="checkbox" name="delete_outputs" checked>
+      <span>Borrar tambien outputs</span>
+    </label>
+    <button type="submit" class="btn-link btn-danger" id="bulkDeleteBtn" disabled>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path></svg>
+      Borrar seleccionados
+    </button>
+  </div>
+</form>
+
 <section class="recent-section">
   <div class="recent-grid">
     {% for j in jobs %}
-      <a href="/job/{{ j.id }}" class="recent-card status-{{ j.status }}">
-        <div class="recent-card-head">
-          <span class="badge badge-{{ j.status }}">{{ j.status }}</span>
-          <span class="recent-time">{{ j.created[:16] | replace('T', ' ') }}</span>
-        </div>
-        <div class="recent-video">{{ j.video }}</div>
-        <div class="recent-meta">{{ j.n_clips }} reels{% if j.profile %} · perfil <code>{{ j.profile }}</code>{% endif %}</div>
-      </a>
+      <div class="recent-card-wrap">
+        <input type="checkbox" class="job-check" data-id="{{ j.id }}" id="chk-{{ j.id }}">
+        <a href="/job/{{ j.id }}" class="recent-card status-{{ j.status }}">
+          <div class="recent-card-head">
+            <span class="badge badge-{{ j.status }}">{{ j.status }}</span>
+            <span class="recent-time">{{ j.created[:16] | replace('T', ' ') }}</span>
+          </div>
+          <div class="recent-video">{{ j.video }}</div>
+          <div class="recent-meta">{{ j.n_clips }} reels{% if j.profile %} · perfil <code>{{ j.profile }}</code>{% endif %}</div>
+        </a>
+      </div>
     {% endfor %}
   </div>
 </section>
+
+<script>
+(() => {
+  const checks = document.querySelectorAll(".job-check");
+  const all = document.getElementById("bulkSelectAll");
+  const btn = document.getElementById("bulkDeleteBtn");
+  const counter = document.getElementById("bulkCount");
+  const idsField = document.getElementById("bulkJobIds");
+  function update() {
+    const sel = Array.from(checks).filter(c => c.checked).map(c => c.dataset.id);
+    idsField.value = sel.join(",");
+    counter.textContent = sel.length + " seleccionado" + (sel.length === 1 ? "" : "s");
+    btn.disabled = sel.length === 0;
+  }
+  checks.forEach(c => c.addEventListener("change", update));
+  if (all) {
+    all.addEventListener("change", () => {
+      checks.forEach(c => c.checked = all.checked);
+      update();
+    });
+  }
+  window.confirmBulkDelete = () => {
+    const sel = Array.from(checks).filter(c => c.checked);
+    return confirm(`Borrar ${sel.length} jobs? No se puede deshacer.`);
+  };
+})();
+</script>
 
 {% if pages > 1 %}
 <nav class="pagination">
