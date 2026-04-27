@@ -129,4 +129,40 @@
     </button>
   </form>
 </section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+<script>
+  const ts = {{ stats.timeseries | tojson }};
+  const labels = ts.days.map(d => d.slice(5));
+
+  const baseOpts = {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: '#27272f' } },
+      y: { ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: '#27272f' }, beginAtZero: true },
+    },
+  };
+
+  new Chart(document.getElementById("jobsChart"), {
+    type: "bar",
+    data: { labels: labels, datasets: [{
+      data: ts.counts,
+      backgroundColor: "rgba(249,115,22,0.7)",
+      borderRadius: 4,
+    }] },
+    options: baseOpts,
+  });
+
+  new Chart(document.getElementById("costChart"), {
+    type: "line",
+    data: { labels: labels, datasets: [{
+      data: ts.costs,
+      borderColor: "#8b5cf6",
+      backgroundColor: "rgba(139,92,246,0.15)",
+      tension: 0.3, fill: true, pointRadius: 2,
+    }] },
+    options: baseOpts,
+  });
+</script>
 {% endblock %}
