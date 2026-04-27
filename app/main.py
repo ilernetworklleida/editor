@@ -277,6 +277,7 @@ def find_reels(out_dir_name: str) -> list[dict]:
         thumb = out_dir / f"{stem}.jpg"
         txt = out_dir / f"{stem}.txt"
         en_srt = out_dir / f"{stem}_en.srt"
+        copy_json = out_dir / f"{stem}.copy.json"
         info: dict = {"name": mp4.name, "stem": stem,
                       "video": f"/output/{out_dir_name}/{mp4.name}"}
         if thumb.exists():
@@ -288,6 +289,11 @@ def find_reels(out_dir_name: str) -> list[dict]:
                 info["txt"] = ""
         if en_srt.exists():
             info["en_srt"] = f"/output/{out_dir_name}/{en_srt.name}"
+        if copy_json.exists():
+            try:
+                info["copy"] = json.loads(copy_json.read_text(encoding="utf-8"))
+            except Exception:
+                pass
         info["size_mb"] = round(mp4.stat().st_size / (1024 * 1024), 1)
         reels.append(info)
     return reels
@@ -738,6 +744,7 @@ async def run_job(
     instructions: str = Form(""),
     no_normalize: str = Form(""),
     karaoke: str = Form(""),
+    generate_copy: str = Form(""),
 ):
     url = url.strip()
     if not video and not url:
@@ -754,6 +761,7 @@ async def run_job(
             music, music_vol, duck, watermark, watermark_pos, watermark_scale,
             outro, outro_duration, skip_start, skip_end, no_hook,
             translate_en, ai_highlights, instructions, no_normalize, karaoke,
+            generate_copy,
         )
 
     use_yt = bool(url)
@@ -812,6 +820,8 @@ async def run_job(
         args += ["--no-normalize"]
     if karaoke == "on":
         args += ["--karaoke"]
+    if generate_copy == "on":
+        args += ["--generate-copy"]
 
     job_id = uuid.uuid4().hex[:12]
     job_data = {
@@ -966,6 +976,7 @@ def _build_pipeline_args(
     outro: str, outro_duration: float, skip_start: float, skip_end: float,
     no_hook: str, translate_en: str, ai_highlights: str,
     instructions: str = "", no_normalize: str = "", karaoke: str = "",
+    generate_copy: str = "",
 ) -> list[str]:
     """Genera la lista de flags para auto_reels_pro a partir del form."""
     args: list[str] = []
@@ -1010,6 +1021,8 @@ def _build_pipeline_args(
         args += ["--no-normalize"]
     if karaoke == "on":
         args += ["--karaoke"]
+    if generate_copy == "on":
+        args += ["--generate-copy"]
     return args
 
 
@@ -1020,6 +1033,7 @@ def _spawn_bulk_jobs(
     outro: str, outro_duration: float, skip_start: float, skip_end: float,
     no_hook: str, translate_en: str, ai_highlights: str,
     instructions: str = "", no_normalize: str = "", karaoke: str = "",
+    generate_copy: str = "",
 ) -> RedirectResponse:
     """Crea N jobs en cola (uno por URL) y redirige al listado."""
     base_args = _build_pipeline_args(
@@ -1027,6 +1041,7 @@ def _spawn_bulk_jobs(
         music, music_vol, duck, watermark, watermark_pos, watermark_scale,
         outro, outro_duration, skip_start, skip_end, no_hook,
         translate_en, ai_highlights, instructions, no_normalize, karaoke,
+        generate_copy,
     )
     spawned = 0
     for u in urls:

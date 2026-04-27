@@ -205,6 +205,89 @@ def find_highlights(all_segs: list, target_dur: float, n: int) -> list[dict]:
     return selected
 
 
+def generate_copy_for_clips(clips: list[dict], all_segs: list,
+                            language: str = "es") -> list[dict] | None:
+    """Genera title/description/first_comment/hashtags para cada clip via Claude.
+    Devuelve None si falla. Una sola llamada API para los N clips."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key or not clips:
+        return None
+    try:
+        import anthropic
+        from pydantic import BaseModel
+    except ImportError:
+        return None
+
+    clip_blocks = []
+    for i, c in enumerate(clips, 1):
+        t0 = c.get("start", 0)
+        t1 = c.get("end", 0)
+        text = " ".join(
+            t.strip() for s, e, t in all_segs
+            if s >= t0 - 0.5 and e <= t1 + 0.5
+        )
+        clip_blocks.append(f"--- CLIP {i} ({t1-t0:.0f}s) ---\n{text}")
+    transcripts = "\n\n".join(clip_blocks)
+
+    system = (
+        "Eres copywriter senior de social media short-form video "
+        "(TikTok / Reels / Shorts). Generas copy de alta conversion para "
+        "cada clip.\n\n"
+        "Para CADA clip me das:\n"
+        "- title: gancho corto 40-80 chars (no clickbait barato; "
+        "  promete algo que el clip cumple)\n"
+        "- description: 80-150 chars; puede llevar 1-2 emojis si encajan\n"
+        "- first_comment: pregunta concreta o llamada a interaccion "
+        "  (30-100 chars); pensada para que la gente responda\n"
+        "- hashtags: 5-8 hashtags (mezcla de nicho + 1-2 genericos del "
+        "  idioma); sin '#' al inicio (yo lo anado)\n\n"
+        "REGLAS:\n"
+        "- Mismo idioma del clip\n"
+        "- Si un clip es seco o poco viralizable, di title='' y "
+        "  description='' (mejor honesto que inventar)\n"
+        "- No uses palabras prohibidas en plataformas (sex, kill, etc.)"
+    )
+    user_msg = (
+        f"Idioma: {language}\n"
+        f"Generame copy para estos {len(clips)} clips:\n\n{transcripts}"
+    )
+
+    class CopyItem(BaseModel):
+        clip_id: int
+        title: str
+        description: str
+        first_comment: str
+        hashtags: list[str]
+
+    class CopyBatch(BaseModel):
+        clips: list[CopyItem]
+
+    model_id = os.environ.get("HIGHLIGHTS_MODEL", "claude-opus-4-7").strip()
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.parse(
+            model=model_id,
+            max_tokens=4096,
+            thinking={"type": "adaptive"},
+            cache_control={"type": "ephemeral"},
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+            output_format=CopyBatch,
+        )
+        usage = response.usage
+        in_tok = getattr(usage, "input_tokens", 0) or 0
+        out_tok = getattr(usage, "output_tokens", 0) or 0
+        cw = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        cr = getattr(usage, "cache_read_input_tokens", 0) or 0
+        print(f"[..] Copy IA: {len(response.parsed_output.clips)} clips")
+        print(f"     tokens: in={in_tok} out={out_tok} "
+              f"cache_write={cw} cache_read={cr}")
+        return [c.dict() for c in response.parsed_output.clips]
+    except Exception as e:
+        print(f"[!!] generate_copy fallo: {e}")
+        return None
+
+
 def find_highlights_ai(all_segs: list, target_dur: float, n: int,
                        language: str = "es",
                        instructions: str = "") -> list[dict] | None:
@@ -692,7 +775,8 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
          out_suffix: str = "",
          instructions: str = "",
          normalize_audio: bool = True,
-         karaoke: bool = False) -> None:
+         karaoke: bool = False,
+         generate_copy: bool = False) -> None:
     video = Path(video_path)
     if not video.exists():
         print(f"[ERROR] No existe: {video}")
@@ -1023,6 +1107,41 @@ def main(video_path: str, n_clips: int, mode: str, target_dur: float,
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
+    # Genera copy con IA al final si esta activo (1 sola llamada para los N)
+    if generate_copy and clips:
+        print(f"\n[..] Generando copy con IA para los {len(clips)} reels...")
+        copies = generate_copy_for_clips(clips, all_segs, info.language)
+        if copies:
+            for c in copies:
+                cid = int(c.get("clip_id", 0))
+                if cid < 1:
+                    continue
+                copy_path = out_dir / f"reel_{cid:02d}.copy.json"
+                copy_path.write_text(
+                    json.dumps(c, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                # Append al .txt para acceso rapido
+                txt_path = out_dir / f"reel_{cid:02d}.txt"
+                if txt_path.exists():
+                    tags_line = " ".join(
+                        ("#" + h.lstrip("#") for h in c.get("hashtags", []))
+                    )
+                    extra = (
+                        f"\nCOPY GENERADO CON IA (Claude):\n"
+                        f"TITULO: {c.get('title','')}\n"
+                        f"DESCRIPCION: {c.get('description','')}\n"
+                        f"PRIMER COMENTARIO: {c.get('first_comment','')}\n"
+                        f"HASHTAGS IA: {tags_line}\n"
+                    )
+                    txt_path.write_text(
+                        txt_path.read_text(encoding="utf-8") + extra,
+                        encoding="utf-8",
+                    )
+            print(f"[OK] Copy generado y guardado en .copy.json + .txt")
+        else:
+            print(f"[!!] Copy fallo (sin API key o error)")
+
     print(f"\n[OK] {len(clips)} reels listos en {out_dir}")
 
 
@@ -1104,6 +1223,7 @@ def parse_args(argv: list):
     instructions = extract_first("--instructions") or ""
     normalize_audio = not extract_first("--no-normalize", has_value=False)
     karaoke = bool(extract_first("--karaoke", has_value=False))
+    generate_copy = bool(extract_first("--generate-copy", has_value=False))
 
     if len(args) < 2:
         return None
@@ -1112,7 +1232,7 @@ def parse_args(argv: list):
             grade, outro_text, outro_duration, ducking,
             watermark, watermark_pos, watermark_scale, translate_en,
             ai_highlights, out_suffix, instructions, normalize_audio,
-            karaoke)
+            karaoke, generate_copy)
 
 
 if __name__ == "__main__":
@@ -1121,7 +1241,7 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     (vp, n, mode, td, ch, st, ss, se, mu, hk, mv,
-     gr, ot, od, dk, wm, wp, ws, te, ai, osfx, ins, nrm, kar) = parsed
+     gr, ot, od, dk, wm, wp, ws, te, ai, osfx, ins, nrm, kar, gc) = parsed
     main(vp, n, mode, td, ch, st, ss, se,
          music=mu, with_hook=hk, music_volume=mv,
          grade=gr, outro_text=ot, outro_duration=od,
@@ -1129,4 +1249,4 @@ if __name__ == "__main__":
          watermark_scale=ws, translate_en=te,
          ai_highlights=ai, out_suffix=osfx,
          instructions=ins, normalize_audio=nrm,
-         karaoke=kar)
+         karaoke=kar, generate_copy=gc)

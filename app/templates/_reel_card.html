@@ -21,6 +21,30 @@
       </button>
       {% endif %}
     </div>
+    {% if r.copy %}
+    <div class="reel-copy-box">
+      <div class="reel-copy-row">
+        <span class="reel-copy-label">titulo</span>
+        <span class="reel-copy-val" data-copy="{{ r.copy.title | e }}">{{ r.copy.title }}</span>
+      </div>
+      <div class="reel-copy-row">
+        <span class="reel-copy-label">desc</span>
+        <span class="reel-copy-val" data-copy="{{ r.copy.description | e }}">{{ r.copy.description }}</span>
+      </div>
+      {% if r.copy.first_comment %}
+      <div class="reel-copy-row">
+        <span class="reel-copy-label">1er comentario</span>
+        <span class="reel-copy-val" data-copy="{{ r.copy.first_comment | e }}">{{ r.copy.first_comment }}</span>
+      </div>
+      {% endif %}
+      {% if r.copy.hashtags %}
+      <div class="reel-copy-row">
+        <span class="reel-copy-label">tags</span>
+        <span class="reel-copy-val reel-copy-tags" data-copy="{% for h in r.copy.hashtags %}#{{ h.lstrip('#') }} {% endfor %}">{% for h in r.copy.hashtags %}#{{ h.lstrip('#') }} {% endfor %}</span>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
     {% if r.txt %}
     {% set ai_match = r.txt.split('MOTIVO IA (Claude):')|last if 'MOTIVO IA' in r.txt else '' %}
     {% if ai_match and ai_match != r.txt %}

@@ -139,6 +139,21 @@
     });
   });
 
+  // ===== Click-to-copy en valores del copy IA =====
+  document.addEventListener("click", (e) => {
+    const val = e.target.closest(".reel-copy-val");
+    if (!val || !val.dataset.copy) return;
+    navigator.clipboard.writeText(val.dataset.copy.trim()).then(() => {
+      const original = val.textContent;
+      val.textContent = "[copiado al portapapeles]";
+      val.style.color = "var(--success)";
+      setTimeout(() => {
+        val.textContent = original;
+        val.style.color = "";
+      }, 1200);
+    });
+  });
+
   // ===== Keyboard shortcuts =====
   document.addEventListener("keydown", (e) => {
     // Ignore if typing in input/textarea

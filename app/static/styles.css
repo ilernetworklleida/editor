@@ -1129,6 +1129,55 @@ input[type="file"]::file-selector-button {
   margin-top: 2px;
 }
 
+.reel-copy-box {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.reel-copy-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.reel-copy-label {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+  width: 90px;
+  padding-top: 2px;
+}
+.reel-copy-val {
+  color: var(--text);
+  flex: 1;
+  cursor: pointer;
+  line-height: 1.4;
+  position: relative;
+  word-break: break-word;
+}
+.reel-copy-val:hover {
+  color: var(--accent);
+}
+.reel-copy-val::after {
+  content: " click=copia";
+  font-size: 9px;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity .15s;
+}
+.reel-copy-val:hover::after { opacity: 1; }
+.reel-copy-tags { color: var(--accent-2); font-family: var(--font-mono); font-size: 11px; }
+
 .reel-text {
   margin-top: 4px;
   font-size: 12px;
