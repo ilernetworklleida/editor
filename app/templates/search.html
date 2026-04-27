@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Buscar &middot; REEL/LAB{% endblock %}
+
+{% block content %}
+<section class="hero" style="margin-bottom: var(--space-5);">
+  <h1>Buscar en reels</h1>
+  <p class="hero-sub">Full-text search en todas las transcripciones generadas. Encuentra ese clip donde hablaste de algo.</p>
+</section>
+
+<section class="card">
+  <form method="get" action="/search" class="search-form">
+    <div class="field">
+      <label for="q">Buscar palabra o frase</label>
+      <input type="search" name="q" id="q" value="{{ q }}"
+             placeholder="ej: bitcoin, marketing digital, mi nombre..."
+             autofocus>
+    </div>
+    <button type="submit" class="btn-primary" style="margin-top: var(--space-3);">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      Buscar
+    </button>
+  </form>
+</section>
+
+{% if q %}
+<section class="recent-section">
+  <div class="section-title-row">
+    <h2 class="section-title">{{ results|length }} resultado{{ 's' if results|length != 1 else '' }} para "<em>{{ q }}</em>"</h2>
+  </div>
+  {% if results %}
+    <div class="search-results">
+      {% for r in results %}
+        <a href="{% if r.job_id %}/job/{{ r.job_id }}{% else %}{{ r.video }}{% endif %}" class="search-result">
+          {% if r.thumb %}
+            <img src="{{ r.thumb }}" loading="lazy" alt="">
+          {% else %}
+            <div class="search-thumb-placeholder">no thumb</div>
+          {% endif %}
+          <div class="search-result-info">
+            <div class="search-result-name">{{ r.reel_name }} <small>en <code>{{ r.out_dir }}</code></small></div>
+            <div class="search-snippet">{{ r.snippet | safe }}</div>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state card" style="text-align: center; padding: var(--space-7);">
+      <p style="color: var(--text-muted);">Sin resultados.</p>
+    </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

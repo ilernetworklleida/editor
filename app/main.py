@@ -1848,6 +1848,72 @@ async def stats_page(request: Request):
     })
 
 
+def search_transcripts(query: str, limit: int = 50) -> list[dict]:
+    """Busca el query en todos los .txt y .segs.json de output/.
+    Devuelve lista de {reel, snippet, job_id, ...} con coincidencias."""
+    if not query.strip() or not OUTPUT_DIR.exists():
+        return []
+    q = query.lower().strip()
+    matches = []
+    # Map out_dir -> job_id for clickable links
+    out_to_job: dict[str, str] = {}
+    if JOBS_DIR.exists():
+        for jp in JOBS_DIR.glob("*.json"):
+            try:
+                d = json.loads(jp.read_text(encoding="utf-8"))
+                out_to_job[d.get("out_dir", "")] = d.get("id", "")
+            except Exception:
+                continue
+
+    for txt_path in OUTPUT_DIR.rglob("reel_*.txt"):
+        try:
+            content = txt_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        lower = content.lower()
+        if q not in lower:
+            continue
+        # Snippet con contexto (~120 chars alrededor de la primera coincidencia)
+        idx = lower.index(q)
+        start = max(0, idx - 60)
+        end = min(len(content), idx + len(q) + 60)
+        snippet = content[start:end].replace("\n", " ").strip()
+        if start > 0:
+            snippet = "..." + snippet
+        if end < len(content):
+            snippet = snippet + "..."
+        out_dir_name = txt_path.parent.name
+        reel_stem = txt_path.stem
+        mp4 = txt_path.with_suffix(".mp4")
+        thumb = txt_path.with_suffix(".jpg")
+        try:
+            reel_id = int(reel_stem.replace("reel_", ""))
+        except ValueError:
+            reel_id = None
+        matches.append({
+            "out_dir": out_dir_name,
+            "reel_name": mp4.name,
+            "reel_id": reel_id,
+            "video": f"/output/{out_dir_name}/{mp4.name}" if mp4.exists() else None,
+            "thumb": f"/output/{out_dir_name}/{thumb.name}" if thumb.exists() else None,
+            "job_id": out_to_job.get(out_dir_name, ""),
+            "snippet": snippet,
+            "mtime": txt_path.stat().st_mtime,
+        })
+    matches.sort(key=lambda m: m["mtime"], reverse=True)
+    return matches[:limit]
+
+
+@app.get("/search", response_class=HTMLResponse)
+async def search_page(request: Request, q: str = ""):
+    results = search_transcripts(q) if q else []
+    return templates.TemplateResponse(request, "search.html", {
+        "q": q,
+        "results": results,
+        "current_user": ADMIN_EMAIL if AUTH_ENABLED and is_authed(request) else None,
+    })
+
+
 def find_recent_reels(limit: int = 6) -> list[dict]:
     """Devuelve los ultimos N reels generados (por mtime) con miniaturas."""
     if not OUTPUT_DIR.exists():

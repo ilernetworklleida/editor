@@ -685,6 +685,70 @@ input[type="file"]::file-selector-button {
   color: var(--text-muted);
 }
 
+/* ===== Search ===== */
+.search-form {
+  margin-bottom: 0;
+}
+.search-form input[type="search"] {
+  font-size: 16px;
+  padding: 14px 16px;
+}
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.search-result {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: all .15s ease;
+  color: var(--text);
+}
+.search-result:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.search-result img,
+.search-thumb-placeholder {
+  width: 60px;
+  aspect-ratio: 9/16;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  background: var(--bg-2);
+}
+.search-thumb-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.search-result-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.search-result-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+.search-result-name code {
+  font-size: 11px;
+  background: var(--bg-2);
+}
+.search-snippet {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  font-family: var(--font-mono);
+}
+
 /* ===== Schedules table ===== */
 .sched-table {
   width: 100%;
