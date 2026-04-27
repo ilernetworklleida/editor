@@ -1128,6 +1128,105 @@ async def edit_reel_save(
     )
 
 
+@app.post("/job/{job_id}/edit/{reel_id}/reburn")
+async def reburn_reel_endpoint(job_id: str, reel_id: int):
+    """Re-renderiza el reel N usando los segments editados (segs.json) y
+    los mismos flags de estilo del job original."""
+    job = load_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job no existe")
+    out_dir = OUTPUT_DIR / job["out_dir"]
+    segs_path = out_dir / f"reel_{reel_id:02d}.segs.json"
+    if not segs_path.exists():
+        raise HTTPException(404, "Sin segmentos guardados")
+    seg_data = json.loads(segs_path.read_text(encoding="utf-8"))
+
+    # Resolver source video
+    first_arg = job["args"][0]
+    if job.get("use_yt"):
+        vid = yt_video_id(first_arg)
+        if not vid:
+            raise HTTPException(400, "URL invalida en el job")
+        source = INPUT_DIR / f"yt_{vid}.mp4"
+    else:
+        source = Path(first_arg)
+        if not source.is_absolute():
+            source = ROOT / source
+
+    if not source.exists():
+        raise HTTPException(404, f"Source video no existe: {source.name}")
+
+    # Extraer flags de estilo del job["args"] originales
+    orig_args = job["args"][2:]  # skip [video, n_clips]
+    pass_value = {"--style", "--grade", "--chunk", "--music", "--music-vol",
+                  "--watermark", "--watermark-pos", "--watermark-scale",
+                  "--outro", "--outro-duration"}
+    pass_bool = {"--duck", "--no-hook", "--no-normalize", "--karaoke"}
+
+    style_args: list[str] = []
+    i = 0
+    while i < len(orig_args):
+        a = orig_args[i]
+        if a in pass_value and i + 1 < len(orig_args):
+            style_args += [a, orig_args[i + 1]]
+            i += 2
+        elif a in pass_bool:
+            style_args += [a]
+            i += 1
+        else:
+            i += 1
+
+    # Si el job usaba --profile, expanderlo a flags reales
+    profile_name = None
+    for j, a in enumerate(orig_args):
+        if a == "--profile" and j + 1 < len(orig_args):
+            profile_name = orig_args[j + 1]
+            break
+    if profile_name:
+        prof_path = PROFILES_DIR / f"{profile_name}.json"
+        if prof_path.exists():
+            try:
+                pdata = json.loads(prof_path.read_text(encoding="utf-8"))
+                pargs = pdata if isinstance(pdata, list) else pdata.get("args", [])
+                k = 0
+                while k < len(pargs):
+                    a = pargs[k]
+                    if a in pass_value and k + 1 < len(pargs):
+                        # Solo anadir si no estaba ya en style_args (CLI gana)
+                        if a not in style_args:
+                            style_args += [a, pargs[k + 1]]
+                        k += 2
+                    elif a in pass_bool:
+                        if a not in style_args:
+                            style_args += [a]
+                        k += 1
+                    else:
+                        k += 1
+            except Exception:
+                pass
+
+    out_mp4 = out_dir / f"reel_{reel_id:02d}.mp4"
+    cmd = [
+        sys.executable, str(SCRIPTS_DIR / "reburn_reel.py"),
+        "--source", str(source),
+        "--t0", str(seg_data.get("t0", 0)),
+        "--t1", str(seg_data.get("t1", 30)),
+        "--segs", str(segs_path),
+        "--output", str(out_mp4),
+    ] + style_args
+
+    print(f"[reburn] reel {reel_id} de job {job_id}: {' '.join(cmd[2:6])}")
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(ROOT))
+    if proc.returncode != 0:
+        raise HTTPException(
+            500,
+            f"Re-burn fallo: {(proc.stderr or proc.stdout or '')[-500:]}",
+        )
+    return RedirectResponse(
+        f"/job/{job_id}/edit/{reel_id}?reburned=1", status_code=303
+    )
+
+
 @app.get("/job/{job_id}/srt/{reel_id}")
 async def download_srt(job_id: str, reel_id: int):
     """Descarga .srt generado a partir de los segmentos (editados o no)."""
