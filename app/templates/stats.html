@@ -7,6 +7,23 @@
   <p class="hero-sub">Uso de disco y estado de jobs.</p>
 </section>
 
+<section class="card api-status-card">
+  <h2 class="card-title">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+    Estado de servicios
+  </h2>
+  <div class="api-status-row">
+    <span class="api-label">Claude API</span>
+    {% if anthropic.configured and anthropic.valid %}
+      <span class="api-pill api-ok">OK · {{ anthropic.model_display or anthropic.model }}</span>
+    {% elif anthropic.configured and not anthropic.valid %}
+      <span class="api-pill api-error">FALLO · {{ anthropic.error[:80] }}</span>
+    {% else %}
+      <span class="api-pill api-off">SIN CONFIGURAR · define ANTHROPIC_API_KEY en .env</span>
+    {% endif %}
+  </div>
+</section>
+
 <div class="stats-grid">
   <div class="card stat-card">
     <h3>Jobs por estado</h3>
